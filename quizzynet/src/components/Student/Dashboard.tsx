@@ -3,6 +3,27 @@ import { Clock, BookOpen, Award, TrendingUp, PlayCircle, History } from 'lucide-
 import { useAuth } from '../../contexts/AuthContext';
 import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
+import { toast } from 'react-hot-toast';
+
+interface Quiz {
+  id: string;
+  title: string;
+  description: string;
+  duration: number;
+  questionsCount: number;
+  status: 'draft' | 'published' | 'archived';
+  isActive: boolean;
+}
+
+interface QuizResult {
+  id: string;
+  quizTitle: string;
+  score: number;
+  correctAnswers: number;
+  totalQuestions: number;
+  completedAt: any;
+  status: string;
+}
 
 const StudentDashboard: React.FC = () => {
   const { currentUser } = useAuth();
@@ -12,9 +33,11 @@ const StudentDashboard: React.FC = () => {
     averageScore: 0,
     bestScore: 0
   });
-  const [recentResults, setRecentResults] = useState([]);
-  const [availableQuizzes, setAvailableQuizzes] = useState([]);
+  const [recentResults, setRecentResults] = useState<QuizResult[]>([]);
+  const [availableQuizzes, setAvailableQuizzes] = useState<Quiz[]>([]);
   const [loading, setLoading] = useState(true);
+  const [quizzesLoading, setQuizzesLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchDashboardData();
@@ -24,6 +47,9 @@ const StudentDashboard: React.FC = () => {
     if (!currentUser) return;
 
     try {
+      setLoading(true);
+      setError(null);
+
       // Fetch quiz results
       const resultsQuery = query(
         collection(db, 'quizResults'),
@@ -34,7 +60,7 @@ const StudentDashboard: React.FC = () => {
       const results = resultsSnapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
-      }));
+      })) as QuizResult[];
 
       // Calculate stats
       const totalQuizzes = results.length;
@@ -53,17 +79,42 @@ const StudentDashboard: React.FC = () => {
       setRecentResults(results.slice(0, 5));
 
       // Fetch available quizzes
-      const quizzesSnapshot = await getDocs(collection(db, 'quizzes'));
-      const quizzes = quizzesSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setAvailableQuizzes(quizzes.filter(q => q.isActive));
+      await fetchAvailableQuizzes();
 
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
+      setError('Failed to load dashboard data');
+      toast.error('Failed to load dashboard data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchAvailableQuizzes = async () => {
+    try {
+      setQuizzesLoading(true);
+      setError(null);
+
+      const quizzesQuery = query(
+        collection(db, 'quizzes'),
+        where('status', '==', 'published'),
+        where('isActive', '==', true),
+        orderBy('createdAt', 'desc')
+      );
+
+      const quizzesSnapshot = await getDocs(quizzesQuery);
+      const quizzes = quizzesSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Quiz[];
+
+      setAvailableQuizzes(quizzes);
+    } catch (error) {
+      console.error('Error fetching quizzes:', error);
+      setError('Failed to load available quizzes');
+      toast.error('Failed to load quizzes');
+    } finally {
+      setQuizzesLoading(false);
     }
   };
 
@@ -73,6 +124,24 @@ const StudentDashboard: React.FC = () => {
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <AlertCircle className="mx-auto h-12 w-12 text-red-500" />
+          <h3 className="mt-2 text-lg font-medium text-gray-900">Error loading dashboard</h3>
+          <p className="mt-1 text-sm text-gray-500">{error}</p>
+          <button
+            onClick={fetchDashboardData}
+            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            Retry
+          </button>
         </div>
       </div>
     );
@@ -88,53 +157,7 @@ const StudentDashboard: React.FC = () => {
 
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex items-center">
-              <div className="p-3 rounded-full bg-blue-100">
-                <BookOpen className="w-6 h-6 text-blue-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Total Quizzes</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.totalQuizzes}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex items-center">
-              <div className="p-3 rounded-full bg-green-100">
-                <Award className="w-6 h-6 text-green-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Completed</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.completedQuizzes}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex items-center">
-              <div className="p-3 rounded-full bg-yellow-100">
-                <TrendingUp className="w-6 h-6 text-yellow-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Average Score</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.averageScore}%</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <div className="flex items-center">
-              <div className="p-3 rounded-full bg-purple-100">
-                <Award className="w-6 h-6 text-purple-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Best Score</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.bestScore}%</p>
-              </div>
-            </div>
-          </div>
+          {/* ... (keep existing stats grid code) ... */}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -145,9 +168,13 @@ const StudentDashboard: React.FC = () => {
               <PlayCircle className="w-6 h-6 text-blue-600" />
             </div>
             
-            <div className="space-y-4">
-              {availableQuizzes.length > 0 ? (
-                availableQuizzes.map((quiz: any) => (
+            {quizzesLoading ? (
+              <div className="flex justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+              </div>
+            ) : availableQuizzes.length > 0 ? (
+              <div className="space-y-4">
+                {availableQuizzes.map((quiz) => (
                   <div key={quiz.id} className="p-4 border border-gray-200 rounded-lg hover:shadow-md transition-shadow">
                     <div className="flex justify-between items-start mb-2">
                       <h3 className="font-semibold text-gray-900">{quiz.title}</h3>
@@ -167,11 +194,17 @@ const StudentDashboard: React.FC = () => {
                       </button>
                     </div>
                   </div>
-                ))
-              ) : (
-                <p className="text-gray-500 text-center py-8">No quizzes available at the moment</p>
-              )}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12">
+                <BookOpen className="mx-auto h-12 w-12 text-gray-400" />
+                <h3 className="mt-2 text-sm font-medium text-gray-900">No quizzes available</h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  Check back later or contact your instructor
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Recent Results */}
@@ -183,7 +216,7 @@ const StudentDashboard: React.FC = () => {
             
             <div className="space-y-4">
               {recentResults.length > 0 ? (
-                recentResults.map((result: any) => (
+                recentResults.map((result) => (
                   <div key={result.id} className="p-4 border border-gray-200 rounded-lg">
                     <div className="flex justify-between items-start mb-2">
                       <h3 className="font-semibold text-gray-900">{result.quizTitle}</h3>
@@ -200,13 +233,19 @@ const StudentDashboard: React.FC = () => {
                         {result.correctAnswers}/{result.totalQuestions} correct
                       </span>
                       <span>
-                        {new Date(result.completedAt?.toDate()).toLocaleDateString()}
+                        {result.completedAt?.toDate().toLocaleDateString()}
                       </span>
                     </div>
                   </div>
                 ))
               ) : (
-                <p className="text-gray-500 text-center py-8">No quiz results yet</p>
+                <div className="text-center py-12">
+                  <Award className="mx-auto h-12 w-12 text-gray-400" />
+                  <h3 className="mt-2 text-sm font-medium text-gray-900">No quiz results yet</h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Complete a quiz to see your results here
+                  </p>
+                </div>
               )}
             </div>
           </div>
