@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Upload, Download, FileText, AlertCircle, CheckCircle, Plus, Edit, Trash2 } from 'lucide-react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, onSnapshot } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, onSnapshot, writeBatch } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL, uploadBytesResumable } from 'firebase/storage';
 import { db, storage } from '../../lib/firebase';
 import { parseCSVFile, generateCSVTemplate, QuizQuestion } from '../../utils/csvParser';
 import { toast } from 'react-hot-toast';
@@ -80,54 +80,97 @@ const QuestionManagement: React.FC = () => {
   };
 
   const handleFileUpload = async (uploadedFile: File) => {
+    console.log('Starting file upload process...', {
+      fileName: uploadedFile.name,
+      fileSize: uploadedFile.size,
+      fileType: uploadedFile.type
+    });
+
+    // Validate file type
     if (!uploadedFile.name.toLowerCase().endsWith('.csv')) {
       toast.error('Please upload a CSV file');
       return;
     }
 
-    if (uploadedFile.size > 1024 * 1024 * 1024) { // 1GB limit
-      toast.error('File size exceeds 1GB limit');
+    // Validate file size (10MB limit)
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (uploadedFile.size > maxSize) {
+      toast.error('File size exceeds 10MB limit');
       return;
     }
 
     setFile(uploadedFile);
     setParsing(true);
     setParsedData(null);
+    setUploadProgress(0);
 
     try {
-      // Upload file to Firebase Storage
-      setUploading(true);
-      const storageRef = ref(storage, `csv-uploads/${Date.now()}_${uploadedFile.name}`);
-      await uploadBytes(storageRef, uploadedFile);
-      const downloadURL = await getDownloadURL(storageRef);
-      
-      // Parse CSV
+      // First, parse the CSV file
+      console.log('Parsing CSV file...');
       const result = await parseCSVFile(uploadedFile);
-      setParsedData(result);
+      console.log('CSV parsing result:', result);
       
+      setParsedData(result);
+      setParsing(false);
+
       if (result.errors.length > 0) {
-        toast.error(`Parsed with ${result.errors.length} errors`);
+        toast.error(`Parsed with ${result.errors.length} errors. Please review before saving.`);
       } else {
         toast.success(`Successfully parsed ${result.validRows} questions`);
       }
+
+      // Upload file to Firebase Storage for backup
+      setUploading(true);
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const storageRef = ref(storage, `csv-uploads/${timestamp}_${uploadedFile.name}`);
+      
+      const uploadTask = uploadBytesResumable(storageRef, uploadedFile);
+      
+      uploadTask.on('state_changed',
+        (snapshot) => {
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          setUploadProgress(Math.round(progress));
+          console.log('Upload progress:', progress);
+        },
+        (error) => {
+          console.error('Upload error:', error);
+          toast.error('Error uploading file to storage');
+          setUploading(false);
+        },
+        async () => {
+          console.log('File upload completed');
+          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+          console.log('File available at:', downloadURL);
+          setUploading(false);
+          toast.success('File uploaded successfully');
+        }
+      );
+
     } catch (error: any) {
-      toast.error(error.message);
-    } finally {
+      console.error('File processing error:', error);
+      toast.error(`Error processing file: ${error.message}`);
       setParsing(false);
       setUploading(false);
     }
   };
 
   const downloadTemplate = () => {
-    const template = generateCSVTemplate();
-    const blob = new Blob([template], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'quiz_template.csv';
-    a.click();
-    window.URL.revokeObjectURL(url);
-    toast.success('Template downloaded successfully');
+    try {
+      const template = generateCSVTemplate();
+      const blob = new Blob([template], { type: 'text/csv;charset=utf-8;' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'quiz_template.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success('Template downloaded successfully');
+    } catch (error) {
+      console.error('Error downloading template:', error);
+      toast.error('Error downloading template');
+    }
   };
 
   const handleSaveQuestions = async () => {
@@ -137,22 +180,40 @@ const QuestionManagement: React.FC = () => {
     }
 
     try {
-      const batch = parsedData.questions.map(question => 
-        addDoc(collection(db, 'questions'), {
-          ...question,
-          createdAt: new Date()
-        })
-      );
+      console.log('Saving questions to database...', parsedData.questions.length);
       
-      await Promise.all(batch);
+      // Use batch write for better performance
+      const batch = writeBatch(db);
+      const questionsRef = collection(db, 'questions');
+      
+      parsedData.questions.forEach((question) => {
+        const docRef = doc(questionsRef);
+        batch.set(docRef, {
+          ...question,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+      });
+      
+      await batch.commit();
+      
+      console.log('Questions saved successfully');
       toast.success(`${parsedData.questions.length} questions saved successfully`);
       
       // Reset the form
       setFile(null);
       setParsedData(null);
+      setUploadProgress(0);
+      
+      // Clear file input
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+      if (fileInput) {
+        fileInput.value = '';
+      }
+      
     } catch (error) {
       console.error('Error saving questions:', error);
-      toast.error('Error saving questions');
+      toast.error('Error saving questions to database');
     }
   };
 
@@ -160,11 +221,14 @@ const QuestionManagement: React.FC = () => {
     e.preventDefault();
     
     try {
-      await addDoc(collection(db, 'questions'), {
+      const questionData = {
         ...formData,
         id: `q_${Date.now()}`,
-        createdAt: new Date()
-      });
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      
+      await addDoc(collection(db, 'questions'), questionData);
       
       toast.success('Question created successfully');
       setShowCreateModal(false);
@@ -181,7 +245,10 @@ const QuestionManagement: React.FC = () => {
     if (!editingQuestion) return;
     
     try {
-      await updateDoc(doc(db, 'questions', editingQuestion.id), formData);
+      await updateDoc(doc(db, 'questions', editingQuestion.id), {
+        ...formData,
+        updatedAt: new Date()
+      });
       
       toast.success('Question updated successfully');
       setEditingQuestion(null);
@@ -356,7 +423,7 @@ const QuestionManagement: React.FC = () => {
                   Drop your CSV file here, or click to browse
                 </p>
                 <p className="text-sm text-gray-500 mt-1">
-                  Maximum file size: 1GB
+                  Maximum file size: 10MB
                 </p>
               </div>
             </div>
@@ -366,8 +433,16 @@ const QuestionManagement: React.FC = () => {
                 <div className="text-center">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
                   <p className="text-sm text-gray-600">
-                    {uploading ? 'Uploading file...' : 'Parsing file...'}
+                    {parsing ? 'Parsing CSV file...' : `Uploading... ${uploadProgress}%`}
                   </p>
+                  {uploading && (
+                    <div className="w-32 bg-gray-200 rounded-full h-2 mt-2 mx-auto">
+                      <div 
+                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${uploadProgress}%` }}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             )}

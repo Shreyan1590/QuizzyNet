@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Clock, AlertTriangle, CheckCircle, XCircle, ArrowLeft } from 'lucide-react';
+import { doc, getDoc, collection, getDocs, addDoc } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import SecurityManager from '../../lib/security';
 import { toast } from 'react-hot-toast';
@@ -10,54 +13,134 @@ interface Question {
   options: string[];
   correctAnswer: number;
   explanation?: string;
+  difficulty?: string;
+  category?: string;
 }
 
-interface QuizInterfaceProps {
-  quiz: {
-    id: string;
-    title: string;
-    duration: number;
-    questions: Question[];
-  };
-  onComplete: (results: any) => void;
-  onSecurityViolation: () => void;
+interface Quiz {
+  id: string;
+  title: string;
+  description: string;
+  duration: number;
+  questionsCount: number;
+  isActive: boolean;
 }
 
-const QuizInterface: React.FC<QuizInterfaceProps> = ({ quiz, onComplete, onSecurityViolation }) => {
+const QuizInterface: React.FC = () => {
+  const { quizId } = useParams<{ quizId: string }>();
+  const navigate = useNavigate();
   const { currentUser } = useAuth();
+  
+  const [quiz, setQuiz] = useState<Quiz | null>(null);
+  const [questions, setQuestions] = useState<Question[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<{ [key: string]: number }>({});
-  const [timeRemaining, setTimeRemaining] = useState(quiz.duration * 60); // Convert to seconds
+  const [timeRemaining, setTimeRemaining] = useState(0);
   const [securityManager, setSecurityManager] = useState<SecurityManager | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [quizStarted, setQuizStarted] = useState(false);
 
   useEffect(() => {
-    // Initialize security manager
-    const security = new SecurityManager(onSecurityViolation);
-    setSecurityManager(security);
+    if (quizId) {
+      fetchQuizData();
+    }
+  }, [quizId]);
 
-    // Check if user is locked
-    if (security.isUserLocked()) {
-      onSecurityViolation();
+  useEffect(() => {
+    if (quizStarted && quiz) {
+      // Initialize security manager
+      const security = new SecurityManager(handleSecurityViolation);
+      setSecurityManager(security);
+
+      // Check if user is locked
+      if (security.isUserLocked()) {
+        handleSecurityViolation();
+        return;
+      }
+
+      // Start timer
+      setTimeRemaining(quiz.duration * 60); // Convert to seconds
+      const timer = setInterval(() => {
+        setTimeRemaining((prev) => {
+          if (prev <= 1) {
+            handleSubmitQuiz();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+
+      return () => {
+        clearInterval(timer);
+        security.destroy();
+      };
+    }
+  }, [quizStarted, quiz]);
+
+  const fetchQuizData = async () => {
+    if (!quizId || !currentUser) return;
+
+    try {
+      console.log('Fetching quiz data for ID:', quizId);
+      
+      // Fetch quiz details
+      const quizDoc = await getDoc(doc(db, 'quizzes', quizId));
+      if (!quizDoc.exists()) {
+        toast.error('Quiz not found');
+        navigate('/dashboard');
+        return;
+      }
+
+      const quizData = { id: quizDoc.id, ...quizDoc.data() } as Quiz;
+      console.log('Quiz data:', quizData);
+
+      if (!quizData.isActive) {
+        toast.error('This quiz is not currently active');
+        navigate('/dashboard');
+        return;
+      }
+
+      setQuiz(quizData);
+
+      // Fetch questions
+      const questionsSnapshot = await getDocs(collection(db, 'questions'));
+      const allQuestions = questionsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Question[];
+
+      console.log('All questions:', allQuestions.length);
+
+      // Randomly select questions based on quiz configuration
+      const shuffledQuestions = allQuestions.sort(() => 0.5 - Math.random());
+      const selectedQuestions = shuffledQuestions.slice(0, quizData.questionsCount);
+      
+      console.log('Selected questions:', selectedQuestions.length);
+      setQuestions(selectedQuestions);
+
+    } catch (error) {
+      console.error('Error fetching quiz data:', error);
+      toast.error('Error loading quiz');
+      navigate('/dashboard');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSecurityViolation = () => {
+    toast.error('Security violation detected. Quiz access has been restricted.');
+    navigate('/dashboard');
+  };
+
+  const startQuiz = () => {
+    if (questions.length === 0) {
+      toast.error('No questions available for this quiz');
       return;
     }
-
-    // Start timer
-    const timer = setInterval(() => {
-      setTimeRemaining((prev) => {
-        if (prev <= 1) {
-          handleSubmitQuiz();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => {
-      clearInterval(timer);
-      security.destroy();
-    };
-  }, []);
+    setQuizStarted(true);
+    toast.success('Quiz started! Good luck!');
+  };
 
   const formatTime = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
@@ -73,12 +156,12 @@ const QuizInterface: React.FC<QuizInterfaceProps> = ({ quiz, onComplete, onSecur
   const handleAnswerSelect = (optionIndex: number) => {
     setAnswers({
       ...answers,
-      [quiz.questions[currentQuestionIndex].id]: optionIndex
+      [questions[currentQuestionIndex].id]: optionIndex
     });
   };
 
   const handleNextQuestion = () => {
-    if (currentQuestionIndex < quiz.questions.length - 1) {
+    if (currentQuestionIndex < questions.length - 1) {
       setCurrentQuestionIndex(currentQuestionIndex + 1);
     }
   };
@@ -95,9 +178,11 @@ const QuizInterface: React.FC<QuizInterfaceProps> = ({ quiz, onComplete, onSecur
     setIsSubmitting(true);
     
     try {
+      console.log('Submitting quiz...', { answers, questions: questions.length });
+      
       // Calculate results
       let correctAnswers = 0;
-      const detailedResults = quiz.questions.map((question) => {
+      const detailedResults = questions.map((question) => {
         const userAnswer = answers[question.id];
         const isCorrect = userAnswer === question.correctAnswer;
         if (isCorrect) correctAnswers++;
@@ -113,23 +198,30 @@ const QuizInterface: React.FC<QuizInterfaceProps> = ({ quiz, onComplete, onSecur
         };
       });
 
-      const score = Math.round((correctAnswers / quiz.questions.length) * 100);
+      const score = Math.round((correctAnswers / questions.length) * 100);
       
       const results = {
-        quizId: quiz.id,
-        quizTitle: quiz.title,
+        quizId: quiz?.id,
+        quizTitle: quiz?.title,
         studentId: currentUser?.uid,
-        totalQuestions: quiz.questions.length,
+        studentEmail: currentUser?.email,
+        totalQuestions: questions.length,
         correctAnswers,
         score,
-        timeSpent: (quiz.duration * 60) - timeRemaining,
+        timeSpent: quiz ? (quiz.duration * 60) - timeRemaining : 0,
         completedAt: new Date(),
         detailedResults,
         status: 'completed'
       };
 
-      onComplete(results);
+      console.log('Quiz results:', results);
+
+      // Save results to database
+      const resultDoc = await addDoc(collection(db, 'quizResults'), results);
+      
       toast.success('Quiz submitted successfully!');
+      navigate(`/results/${resultDoc.id}`);
+      
     } catch (error) {
       console.error('Error submitting quiz:', error);
       toast.error('Error submitting quiz. Please try again.');
@@ -138,8 +230,101 @@ const QuizInterface: React.FC<QuizInterfaceProps> = ({ quiz, onComplete, onSecur
     }
   };
 
-  const currentQuestion = quiz.questions[currentQuestionIndex];
-  const progress = ((currentQuestionIndex + 1) / quiz.questions.length) * 100;
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading quiz...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!quiz || questions.length === 0) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <XCircle className="mx-auto h-12 w-12 text-red-500" />
+          <h3 className="mt-2 text-sm font-medium text-gray-900">Quiz not available</h3>
+          <p className="mt-1 text-sm text-gray-500">
+            This quiz is not currently available or has no questions.
+          </p>
+          <div className="mt-6">
+            <button
+              onClick={() => navigate('/dashboard')}
+              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+            >
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Back to Dashboard
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!quizStarted) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="max-w-2xl mx-auto p-8">
+          <div className="bg-white rounded-lg shadow-lg p-8 text-center">
+            <h1 className="text-3xl font-bold text-gray-900 mb-4">{quiz.title}</h1>
+            <p className="text-gray-600 mb-6">{quiz.description}</p>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+              <div className="bg-blue-50 p-4 rounded-lg">
+                <Clock className="w-8 h-8 text-blue-600 mx-auto mb-2" />
+                <p className="text-sm font-medium text-blue-900">Duration</p>
+                <p className="text-lg font-bold text-blue-700">{quiz.duration} minutes</p>
+              </div>
+              
+              <div className="bg-green-50 p-4 rounded-lg">
+                <CheckCircle className="w-8 h-8 text-green-600 mx-auto mb-2" />
+                <p className="text-sm font-medium text-green-900">Questions</p>
+                <p className="text-lg font-bold text-green-700">{questions.length}</p>
+              </div>
+              
+              <div className="bg-yellow-50 p-4 rounded-lg">
+                <AlertTriangle className="w-8 h-8 text-yellow-600 mx-auto mb-2" />
+                <p className="text-sm font-medium text-yellow-900">Security</p>
+                <p className="text-lg font-bold text-yellow-700">Monitored</p>
+              </div>
+            </div>
+
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+              <h3 className="text-lg font-semibold text-red-900 mb-2">Important Instructions</h3>
+              <ul className="text-sm text-red-800 text-left space-y-1">
+                <li>• Do not switch tabs or leave the quiz window</li>
+                <li>• Do not right-click or use browser developer tools</li>
+                <li>• Stay in full-screen mode throughout the quiz</li>
+                <li>• You have maximum 3 security violations before being locked out</li>
+                <li>• Quiz will auto-submit when time expires</li>
+              </ul>
+            </div>
+
+            <div className="flex space-x-4 justify-center">
+              <button
+                onClick={() => navigate('/dashboard')}
+                className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={startQuiz}
+                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Start Quiz
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const currentQuestion = questions[currentQuestionIndex];
+  const progress = ((currentQuestionIndex + 1) / questions.length) * 100;
   const answeredQuestions = Object.keys(answers).length;
 
   return (
@@ -150,14 +335,14 @@ const QuizInterface: React.FC<QuizInterfaceProps> = ({ quiz, onComplete, onSecur
             <div>
               <h1 className="text-xl font-bold text-gray-900">{quiz.title}</h1>
               <p className="text-sm text-gray-500">
-                Question {currentQuestionIndex + 1} of {quiz.questions.length}
+                Question {currentQuestionIndex + 1} of {questions.length}
               </p>
             </div>
             
             <div className="flex items-center space-x-6">
               <div className="flex items-center space-x-2">
                 <CheckCircle className="w-5 h-5 text-green-500" />
-                <span className="text-sm font-medium">{answeredQuestions}/{quiz.questions.length} answered</span>
+                <span className="text-sm font-medium">{answeredQuestions}/{questions.length} answered</span>
               </div>
               
               <div className="flex items-center space-x-2">
@@ -243,7 +428,7 @@ const QuizInterface: React.FC<QuizInterfaceProps> = ({ quiz, onComplete, onSecur
             </button>
 
             <div className="flex space-x-4">
-              {currentQuestionIndex === quiz.questions.length - 1 ? (
+              {currentQuestionIndex === questions.length - 1 ? (
                 <button
                   onClick={handleSubmitQuiz}
                   disabled={isSubmitting}
@@ -271,14 +456,14 @@ const QuizInterface: React.FC<QuizInterfaceProps> = ({ quiz, onComplete, onSecur
         <div className="mt-8 bg-white rounded-lg shadow-lg p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Question Navigation</h3>
           <div className="grid grid-cols-10 gap-2">
-            {quiz.questions.map((_, index) => (
+            {questions.map((_, index) => (
               <button
                 key={index}
                 onClick={() => setCurrentQuestionIndex(index)}
                 className={`w-10 h-10 rounded-lg font-medium transition-colors ${
                   index === currentQuestionIndex
                     ? 'bg-blue-600 text-white'
-                    : answers[quiz.questions[index].id] !== undefined
+                    : answers[questions[index].id] !== undefined
                     ? 'bg-green-100 text-green-700 border-2 border-green-300'
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}
