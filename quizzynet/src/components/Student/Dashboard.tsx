@@ -70,7 +70,7 @@ const StudentDashboard: React.FC = () => {
           setIsBlocked(true);
           await signOut(auth);
           sessionStorage.setItem("blocked_user", "true");
-          navigate("/blocked");
+          navigate("/pages/BlockedPage");
           return;
         }
         sessionStorage.removeItem("blocked_user");
