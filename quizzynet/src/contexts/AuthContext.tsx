@@ -100,30 +100,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Add this to your existing AuthContext
-useEffect(() => {
-  const unsubscribe = onAuthStateChanged(auth, async (user) => {
-    if (user) {
-      // Check if user is blocked
-      const userDoc = await getDoc(doc(db, 'users', user.uid));
-      if (userDoc.exists() && userDoc.data().isBlocked) {
-        await signOut(auth);
-        // Store blocked status in session to prevent immediate re-login
-        sessionStorage.setItem('blocked_user', 'true');
-        window.location.href = '/blocked';
-        return;
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setCurrentUser(user);
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists()) {
+          setUserRole(userDoc.data().role);
+        }
+      } else {
+        setCurrentUser(null);
+        setUserRole(null);
       }
-      
-      // Clear blocked status if it exists
-      sessionStorage.removeItem('blocked_user');
-      setCurrentUser(user);
-      setUserRole(userDoc.data()?.role || null);
-    } else {
-      setCurrentUser(null);
-      setUserRole(null);
-    }
-    setLoading(false);
-  });
+      setLoading(false);
+    });
 
-  return unsubscribe;
-}, []);
+    return unsubscribe;
+  }, []);
+
+  const value = {
+    currentUser,
+    userRole,
+    loading,
+    login,
+    register,
+    adminLogin,
+    logout
+  };
+
+  return (
+    <AuthContext.Provider value={value}>
+      {!loading && children}
+    </AuthContext.Provider>
+  );
+};
