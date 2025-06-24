@@ -1,28 +1,10 @@
-import React, { useState, useEffect } from "react";
-import {
-  Clock,
-  BookOpen,
-  Award,
-  TrendingUp,
-  PlayCircle,
-  History,
-  AlertTriangle,
-  ShieldOff,
-} from "lucide-react";
-import { useAuth } from "../../contexts/AuthContext";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  orderBy,
-  onSnapshot,
-  doc,
-} from "firebase/firestore";
-import { db, auth } from "../../lib/firebase";
-import { Link, useNavigate } from "react-router-dom";
-import { toast } from "react-hot-toast";
-import { signOut } from "firebase/auth";
+import React, { useState, useEffect } from 'react';
+import { Clock, BookOpen, Award, TrendingUp, PlayCircle, History, AlertTriangle } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
+import { collection, query, where, getDocs, orderBy, onSnapshot } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
+import { Link } from 'react-router-dom';
+import { toast } from 'react-hot-toast';
 
 interface Quiz {
   id: string;
@@ -32,7 +14,6 @@ interface Quiz {
   questionsCount: number;
   isActive: boolean;
   createdAt: any;
-  status: "draft" | "published" | "archived";
 }
 
 interface QuizResult {
@@ -47,119 +28,100 @@ interface QuizResult {
 
 const StudentDashboard: React.FC = () => {
   const { currentUser } = useAuth();
-  const navigate = useNavigate();
   const [stats, setStats] = useState({
     totalQuizzes: 0,
     completedQuizzes: 0,
     averageScore: 0,
-    bestScore: 0,
+    bestScore: 0
   });
   const [recentResults, setRecentResults] = useState<QuizResult[]>([]);
   const [availableQuizzes, setAvailableQuizzes] = useState<Quiz[]>([]);
   const [loading, setLoading] = useState(true);
   const [quizzesLoading, setQuizzesLoading] = useState(true);
-  const [isBlocked, setIsBlocked] = useState(false);
 
   useEffect(() => {
-    const checkBlockedStatus = async () => {
-      if (!currentUser) return;
-      
-      try {
-        const userDoc = await getDoc(doc(db, "users", currentUser.uid));
-        if (userDoc.exists() && userDoc.data().isBlocked) {
-          setIsBlocked(true);
-          await signOut(auth);
-          sessionStorage.setItem("blocked_user", "true");
-          navigate("/pages/BlockedPage");
-          return;
-        }
-        sessionStorage.removeItem("blocked_user");
-      } catch (error) {
-        console.error("Error checking blocked status:", error);
-        toast.error("Error verifying account status");
-      }
-    };
-
-    checkBlockedStatus();
-  }, [currentUser, navigate]);
-
-  useEffect(() => {
-    if (currentUser && !isBlocked) {
+    if (currentUser) {
       fetchDashboardData();
       setupRealtimeQuizzes();
     }
-  }, [currentUser, isBlocked]);
+  }, [currentUser]);
 
   const fetchDashboardData = async () => {
     if (!currentUser) return;
 
     try {
-      setLoading(true);
+      console.log('Fetching dashboard data for user:', currentUser.uid);
       
+      // Fetch quiz results
       const resultsQuery = query(
-        collection(db, "quizResults"),
-        where("studentId", "==", currentUser.uid),
-        orderBy("completedAt", "desc")
+        collection(db, 'quizResults'),
+        where('studentId', '==', currentUser.uid),
+        orderBy('completedAt', 'desc')
       );
       const resultsSnapshot = await getDocs(resultsQuery);
-      const results = resultsSnapshot.docs.map((doc) => ({
+      const results = resultsSnapshot.docs.map(doc => ({
         id: doc.id,
-        ...doc.data(),
+        ...doc.data()
       })) as QuizResult[];
 
+      console.log('Fetched quiz results:', results);
+
+      // Calculate stats
       const totalQuizzes = results.length;
-      const completedQuizzes = results.filter(
-        (r) => r.status === "completed"
-      ).length;
-      const scores = results.map((r) => r.score || 0);
-      const averageScore =
-        scores.length > 0
-          ? scores.reduce((a, b) => a + b, 0) / scores.length
-          : 0;
+      const completedQuizzes = results.filter(r => r.status === 'completed').length;
+      const scores = results.map(r => r.score || 0);
+      const averageScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
       const bestScore = scores.length > 0 ? Math.max(...scores) : 0;
 
       setStats({
         totalQuizzes,
         completedQuizzes,
         averageScore: Math.round(averageScore),
-        bestScore,
+        bestScore
       });
 
       setRecentResults(results.slice(0, 5));
+
     } catch (error) {
-      console.error("Error fetching dashboard data:", error);
-      toast.error("Error loading dashboard data");
+      console.error('Error fetching dashboard data:', error);
+      toast.error('Error loading dashboard data');
     } finally {
       setLoading(false);
     }
   };
 
   const setupRealtimeQuizzes = () => {
-    const quizzesQuery = query(
-      collection(db, "quizzes"),
-      where("status", "==", "published"),
-      where("isActive", "==", true),
-      orderBy("createdAt", "desc")
-    );
-
+    console.log('Setting up real-time quiz listener...');
+    
+    // Real-time listener for quizzes
     const unsubscribe = onSnapshot(
-      quizzesQuery,
+      query(collection(db, 'quizzes'), orderBy('createdAt', 'desc')),
       (snapshot) => {
-        const quizzes = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        })) as Quiz[];
-
-        setAvailableQuizzes(quizzes);
+        console.log('Quiz snapshot received:', snapshot.docs.length, 'documents');
+        
+        const quizzes = snapshot.docs.map(doc => {
+          const data = doc.data();
+          console.log('Quiz data:', { id: doc.id, ...data });
+          return {
+            id: doc.id,
+            ...data
+          } as Quiz;
+        });
+        
+        const activeQuizzes = quizzes.filter(q => q.isActive);
+        console.log('Active quizzes:', activeQuizzes);
+        
+        setAvailableQuizzes(activeQuizzes);
         setQuizzesLoading(false);
-
-        if (quizzes.length > availableQuizzes.length && !quizzesLoading) {
-          toast.success("New quiz available!");
+        
+        // Show notification for new quizzes
+        if (activeQuizzes.length > availableQuizzes.length && !quizzesLoading) {
+          toast.success('New quiz available!');
         }
       },
       (error) => {
-        console.error("Error in quiz listener:", error);
-        toast.error("Error loading quizzes");
+        console.error('Error in quiz listener:', error);
+        toast.error('Error loading quizzes');
         setQuizzesLoading(false);
       }
     );
@@ -168,30 +130,9 @@ const StudentDashboard: React.FC = () => {
   };
 
   const handleStartQuiz = (quizId: string) => {
-    navigate(`/quiz/${quizId}`);
+    // Navigate to quiz interface
+    window.location.href = `/quiz/${quizId}`;
   };
-
-  if (isBlocked) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center p-8 bg-white rounded-lg shadow-md max-w-md">
-          <ShieldOff className="mx-auto h-12 w-12 text-red-500" />
-          <h1 className="mt-4 text-2xl font-bold text-gray-900">
-            Account Restricted
-          </h1>
-          <p className="mt-2 text-gray-600">
-            Your account has been temporarily suspended by the administrator.
-          </p>
-          <button
-            onClick={() => navigate("/")}
-            className="mt-4 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300"
-          >
-            Return to Home
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   if (loading) {
     return (
@@ -301,7 +242,7 @@ const StudentDashboard: React.FC = () => {
                           Quiz
                         </span>
                       </div>
-                      <button
+                      <button 
                         onClick={() => handleStartQuiz(quiz.id)}
                         className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                       >
