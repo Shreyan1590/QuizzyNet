@@ -1,28 +1,7 @@
 import React, { useState, useEffect } from "react";
-import {
-  BookOpen,
-  Plus,
-  Edit,
-  Trash2,
-  Upload,
-  Download,
-  Eye,
-  Clock,
-  Users,
-} from "lucide-react";
+import { BookOpen, Plus, Edit, Trash2, Upload, Download, Eye, Clock, CheckCircle, Clock as ClockIcon } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  doc,
-  orderBy,
-  onSnapshot,
-} from "firebase/firestore";
+import { collection, query, where, addDoc, orderBy, onSnapshot } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import { toast } from "react-hot-toast";
 import Sidebar from "../Layout/Sidebar";
@@ -60,7 +39,6 @@ const FacultyCourses: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [showCreateCourse, setShowCreateCourse] = useState(false);
   const [showCreateQuiz, setShowCreateQuiz] = useState(false);
-  const [selectedCourse, setSelectedCourse] = useState<string>("");
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -102,7 +80,6 @@ const FacultyCourses: React.FC = () => {
     "Internship",
   ];
 
-  // Fetch courses with real-time updates
   useEffect(() => {
     if (!currentUser?.uid) return;
 
@@ -121,9 +98,9 @@ const FacultyCourses: React.FC = () => {
             courseName: data.courseName || "",
             subjectCategory: data.subjectCategory || "",
             courseCategory: data.courseCategory || "",
-            facultyId: data.facultyId || "",
-            facultyName: data.facultyName || "",
-            isApproved: data.isApproved || false,
+            facultyId: data.facultyId || currentUser.uid,
+            facultyName: data.facultyName || `${userData?.firstName} ${userData?.lastName}`,
+            isApproved: data.isApproved !== undefined ? data.isApproved : false,
             approvedAt: data.approvedAt || null,
             createdAt: data.createdAt || null,
           } as Course;
@@ -138,53 +115,44 @@ const FacultyCourses: React.FC = () => {
       }
     );
 
-    return () => unsubscribeCourses();
-  }, [currentUser]);
-
-  // Fetch quizzes with real-time updates
-  // In FacultyCourses.tsx
-  // FacultyCourses.tsx
-  useEffect(() => {
-    if (!currentUser?.uid) return;
-
-    console.log("Fetching courses for faculty:", currentUser.uid);
-
-    const unsubscribe = onSnapshot(
+    const unsubscribeQuizzes = onSnapshot(
       query(
-        collection(db, "courses"),
+        collection(db, "quizzes"),
         where("facultyId", "==", currentUser.uid),
         orderBy("createdAt", "desc")
       ),
       (snapshot) => {
-        const coursesData = snapshot.docs.map((doc) => {
+        const quizzesData = snapshot.docs.map((doc) => {
           const data = doc.data();
-          console.log("Course document:", { id: doc.id, ...data });
           return {
             id: doc.id,
-            courseCode: data.courseCode,
-            courseName: data.courseName,
-            facultyId: data.facultyId,
-            isApproved: data.isApproved || false, // Default to false if undefined
-            approvedAt: data.approvedAt || null,
-            createdAt: data.createdAt,
-          } as Course;
+            title: data.title || "",
+            description: data.description || "",
+            courseId: data.courseId || "",
+            duration: data.duration || 30,
+            questionsCount: data.questionsCount || 10,
+            isActive: data.isActive !== undefined ? data.isActive : true,
+            scheduledAt: data.scheduledAt || null,
+            createdAt: data.createdAt || null,
+          } as Quiz;
         });
-        setCourses(coursesData);
+        setQuizzes(quizzesData);
       },
       (error) => {
-        console.error("Courses error:", error);
-        toast.error("Failed to load courses");
+        console.error("Error loading quizzes:", error);
+        toast.error("Failed to load quizzes");
       }
     );
 
-    return () => unsubscribe();
-  }, [currentUser]);
+    return () => {
+      unsubscribeCourses();
+      unsubscribeQuizzes();
+    };
+  }, [currentUser, userData]);
 
   const generateCourseCode = (subjectCategory: string) => {
     const subjectCode = subjectCategory.substring(0, 3).toUpperCase();
-    const commonNumber = Math.floor(Math.random() * 100)
-      .toString()
-      .padStart(2, "0");
+    const commonNumber = Math.floor(Math.random() * 100).toString().padStart(2, "0");
     const uniqueId = Math.random().toString(36).substring(2, 4).toUpperCase();
     return `${subjectCode}${commonNumber}${uniqueId}`;
   };
@@ -224,15 +192,12 @@ const FacultyCourses: React.FC = () => {
     if (!currentUser || !userData) return;
 
     try {
-      // Only allow quizzes for approved courses
       const selectedCourse = courses.find((c) => c.id === quizForm.courseId);
       if (!selectedCourse?.isApproved) {
         throw new Error("Course must be approved by admin");
       }
 
-      const scheduledAt = quizForm.scheduledAt
-        ? new Date(quizForm.scheduledAt)
-        : null;
+      const scheduledAt = quizForm.scheduledAt ? new Date(quizForm.scheduledAt) : null;
 
       await addDoc(collection(db, "quizzes"), {
         ...quizForm,
@@ -272,10 +237,7 @@ const FacultyCourses: React.FC = () => {
 
     setUploading(true);
     try {
-      // Here you would implement CSV parsing and question upload
-      // For now, we'll simulate the upload
       await new Promise((resolve) => setTimeout(resolve, 2000));
-
       toast.success("Questions uploaded successfully!");
       setCsvFile(null);
     } catch (error) {
@@ -311,12 +273,8 @@ const FacultyCourses: React.FC = () => {
           <div className="mb-8">
             <div className="flex items-center justify-between">
               <div>
-                <h1 className="text-3xl font-bold text-gray-900">
-                  Course Management
-                </h1>
-                <p className="mt-2 text-gray-600">
-                  Create and manage your courses and quizzes
-                </p>
+                <h1 className="text-3xl font-bold text-gray-900">Course Management</h1>
+                <p className="mt-2 text-gray-600">Create and manage your courses and quizzes</p>
               </div>
               <div className="flex space-x-3">
                 <button
@@ -344,9 +302,7 @@ const FacultyCourses: React.FC = () => {
 
           {/* Courses Section */}
           <div className="mb-8">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">
-              My Courses
-            </h2>
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">My Courses</h2>
             {courses.length === 0 ? (
               <div className="bg-white rounded-lg shadow-md p-6 text-center">
                 <BookOpen className="w-12 h-12 mx-auto text-gray-400" />
@@ -362,41 +318,32 @@ const FacultyCourses: React.FC = () => {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {courses.map((course) => (
-                  <div
-                    key={course.id}
-                    className="bg-white rounded-lg shadow-md p-6"
-                  >
+                  <div key={course.id} className="bg-white rounded-lg shadow-md p-6">
                     <div className="flex items-start justify-between mb-4">
                       <div>
-                        <h3 className="font-semibold text-gray-900">
-                          {course.courseCode}
-                        </h3>
-                        <p className="text-sm text-gray-500">
-                          {course.subjectCategory}
-                        </p>
+                        <h3 className="font-semibold text-gray-900">{course.courseCode}</h3>
+                        <p className="text-sm text-gray-500">{course.subjectCategory}</p>
                       </div>
-                      <span
-                        className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          course.isApproved
-                            ? "bg-green-100 text-green-800"
-                            : "bg-yellow-100 text-yellow-800"
-                        }`}
-                      >
-                        {course.isApproved ? "Approved" : "Pending"}
-                      </span>
+                      <div className="flex items-center">
+                        {course.isApproved ? (
+                          <CheckCircle className="w-5 h-5 text-green-500 mr-1" />
+                        ) : (
+                          <ClockIcon className="w-5 h-5 text-yellow-500 mr-1" />
+                        )}
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          course.isApproved ? "bg-green-100 text-green-800" : "bg-yellow-100 text-yellow-800"
+                        }`}>
+                          {course.isApproved ? "Approved" : "Pending"}
+                        </span>
+                      </div>
                     </div>
 
-                    <h4 className="text-lg font-medium text-gray-900 mb-2">
-                      {course.courseName}
-                    </h4>
-                    <p className="text-sm text-gray-600 mb-4">
-                      Category: {course.courseCategory}
-                    </p>
+                    <h4 className="text-lg font-medium text-gray-900 mb-2">{course.courseName}</h4>
+                    <p className="text-sm text-gray-600 mb-4">Category: {course.courseCategory}</p>
 
-                    {course.isApproved && (
+                    {course.isApproved && course.approvedAt && (
                       <p className="text-xs text-gray-500 mb-2">
-                        Approved on:{" "}
-                        {course.approvedAt?.toDate().toLocaleDateString()}
+                        Approved on: {course.approvedAt.toDate().toLocaleDateString()}
                       </p>
                     )}
 
@@ -419,29 +366,23 @@ const FacultyCourses: React.FC = () => {
 
           {/* Quizzes Section */}
           <div>
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">
-              My Quizzes
-            </h2>
+            <h2 className="text-xl font-semibold text-gray-900 mb-4">My Quizzes</h2>
             {quizzes.length === 0 ? (
               <div className="bg-white rounded-lg shadow-md p-6 text-center">
                 <Clock className="w-12 h-12 mx-auto text-gray-400" />
                 <p className="mt-4 text-gray-600">No quizzes found</p>
-                <button
-                  onClick={() => setShowCreateQuiz(true)}
-                  disabled={courses.filter((c) => c.isApproved).length === 0}
-                  className={`mt-4 inline-flex items-center px-4 py-2 rounded-lg transition-colors ${
-                    courses.filter((c) => c.isApproved).length === 0
-                      ? "bg-gray-400 cursor-not-allowed"
-                      : "bg-purple-600 hover:bg-purple-700 text-white"
-                  }`}
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Create Your First Quiz
-                </button>
-                {courses.filter((c) => c.isApproved).length === 0 && (
+                {courses.filter((c) => c.isApproved).length === 0 ? (
                   <p className="mt-2 text-sm text-red-500">
                     You need at least one approved course to create a quiz
                   </p>
+                ) : (
+                  <button
+                    onClick={() => setShowCreateQuiz(true)}
+                    className="mt-4 inline-flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Create Your First Quiz
+                  </button>
                 )}
               </div>
             ) : (
@@ -449,18 +390,11 @@ const FacultyCourses: React.FC = () => {
                 {quizzes.map((quiz) => {
                   const course = courses.find((c) => c.id === quiz.courseId);
                   return (
-                    <div
-                      key={quiz.id}
-                      className="bg-white rounded-lg shadow-md p-6"
-                    >
+                    <div key={quiz.id} className="bg-white rounded-lg shadow-md p-6">
                       <div className="flex items-start justify-between mb-4">
                         <div className="flex-1">
-                          <h3 className="text-lg font-semibold text-gray-900">
-                            {quiz.title}
-                          </h3>
-                          <p className="text-gray-600 mb-2">
-                            {quiz.description}
-                          </p>
+                          <h3 className="text-lg font-semibold text-gray-900">{quiz.title}</h3>
+                          <p className="text-gray-600 mb-2">{quiz.description}</p>
                           {course && (
                             <p className="text-sm text-gray-500 mb-2">
                               For: {course.courseCode} - {course.courseName}
@@ -477,20 +411,15 @@ const FacultyCourses: React.FC = () => {
                             </span>
                             {quiz.scheduledAt && (
                               <span>
-                                Scheduled:{" "}
-                                {quiz.scheduledAt.toDate().toLocaleString()}
+                                Scheduled: {quiz.scheduledAt.toDate().toLocaleString()}
                               </span>
                             )}
                           </div>
                         </div>
                         <div className="flex items-center space-x-2">
-                          <span
-                            className={`px-2 py-1 rounded-full text-xs font-medium ${
-                              quiz.isActive
-                                ? "bg-green-100 text-green-800"
-                                : "bg-gray-100 text-gray-800"
-                            }`}
-                          >
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            quiz.isActive ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"
+                          }`}>
                             {quiz.isActive ? "Active" : "Inactive"}
                           </span>
                         </div>
@@ -502,9 +431,7 @@ const FacultyCourses: React.FC = () => {
                             <input
                               type="file"
                               accept=".csv"
-                              onChange={(e) =>
-                                setCsvFile(e.target.files?.[0] || null)
-                              }
+                              onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
                               className="hidden"
                               id={`csv-upload-${quiz.id}`}
                             />
@@ -538,8 +465,7 @@ const FacultyCourses: React.FC = () => {
 
                         {csvFile && (
                           <div className="mt-2 text-sm text-gray-600">
-                            Selected file: {csvFile.name} (
-                            {(csvFile.size / (1024 * 1024)).toFixed(2)} MB)
+                            Selected file: {csvFile.name} ({(csvFile.size / (1024 * 1024)).toFixed(2)} MB)
                           </div>
                         )}
                       </div>
@@ -555,77 +481,46 @@ const FacultyCourses: React.FC = () => {
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
               <div className="bg-white rounded-lg max-w-md w-full">
                 <div className="p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                    Create New Course
-                  </h3>
-
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Create New Course</h3>
                   <form onSubmit={handleCreateCourse} className="space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Course Name
-                      </label>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Course Name</label>
                       <input
                         type="text"
                         value={courseForm.courseName}
-                        onChange={(e) =>
-                          setCourseForm({
-                            ...courseForm,
-                            courseName: e.target.value,
-                          })
-                        }
+                        onChange={(e) => setCourseForm({ ...courseForm, courseName: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
                         required
                       />
                     </div>
-
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Subject Category
-                      </label>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Subject Category</label>
                       <select
                         value={courseForm.subjectCategory}
-                        onChange={(e) =>
-                          setCourseForm({
-                            ...courseForm,
-                            subjectCategory: e.target.value,
-                          })
-                        }
+                        onChange={(e) => setCourseForm({ ...courseForm, subjectCategory: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
                         required
                       >
                         <option value="">Select Subject Category</option>
                         {subjectCategories.map((category) => (
-                          <option key={category} value={category}>
-                            {category}
-                          </option>
+                          <option key={category} value={category}>{category}</option>
                         ))}
                       </select>
                     </div>
-
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Course Category
-                      </label>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Course Category</label>
                       <select
                         value={courseForm.courseCategory}
-                        onChange={(e) =>
-                          setCourseForm({
-                            ...courseForm,
-                            courseCategory: e.target.value,
-                          })
-                        }
+                        onChange={(e) => setCourseForm({ ...courseForm, courseCategory: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
                         required
                       >
                         <option value="">Select Course Category</option>
                         {courseCategories.map((category) => (
-                          <option key={category} value={category}>
-                            {category}
-                          </option>
+                          <option key={category} value={category}>{category}</option>
                         ))}
                       </select>
                     </div>
-
                     <div className="flex justify-end space-x-3 pt-4">
                       <button
                         type="button"
@@ -652,124 +547,77 @@ const FacultyCourses: React.FC = () => {
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
               <div className="bg-white rounded-lg max-w-md w-full">
                 <div className="p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                    Create New Quiz
-                  </h3>
-
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Create New Quiz</h3>
                   <form onSubmit={handleCreateQuiz} className="space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Quiz Title
-                      </label>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Quiz Title</label>
                       <input
                         type="text"
                         value={quizForm.title}
-                        onChange={(e) =>
-                          setQuizForm({ ...quizForm, title: e.target.value })
-                        }
+                        onChange={(e) => setQuizForm({ ...quizForm, title: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                         required
                       />
                     </div>
-
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Description
-                      </label>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
                       <textarea
                         value={quizForm.description}
-                        onChange={(e) =>
-                          setQuizForm({
-                            ...quizForm,
-                            description: e.target.value,
-                          })
-                        }
+                        onChange={(e) => setQuizForm({ ...quizForm, description: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                         rows={3}
                         required
                       />
                     </div>
-
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Course
-                      </label>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Course</label>
                       <select
                         value={quizForm.courseId}
-                        onChange={(e) =>
-                          setQuizForm({ ...quizForm, courseId: e.target.value })
-                        }
+                        onChange={(e) => setQuizForm({ ...quizForm, courseId: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                         required
                       >
                         <option value="">Select Course</option>
-                        {courses
-                          .filter((c) => c.isApproved)
-                          .map((course) => (
-                            <option key={course.id} value={course.id}>
-                              {course.courseCode} - {course.courseName}
-                            </option>
-                          ))}
+                        {courses.filter((c) => c.isApproved).map((course) => (
+                          <option key={course.id} value={course.id}>
+                            {course.courseCode} - {course.courseName}
+                          </option>
+                        ))}
                       </select>
                     </div>
-
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Duration (minutes)
-                        </label>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Duration (minutes)</label>
                         <input
                           type="number"
                           value={quizForm.duration}
-                          onChange={(e) =>
-                            setQuizForm({
-                              ...quizForm,
-                              duration: parseInt(e.target.value),
-                            })
-                          }
+                          onChange={(e) => setQuizForm({ ...quizForm, duration: parseInt(e.target.value) })}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                           min="1"
                           required
                         />
                       </div>
-
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Questions Count
-                        </label>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Questions Count</label>
                         <input
                           type="number"
                           value={quizForm.questionsCount}
-                          onChange={(e) =>
-                            setQuizForm({
-                              ...quizForm,
-                              questionsCount: parseInt(e.target.value),
-                            })
-                          }
+                          onChange={(e) => setQuizForm({ ...quizForm, questionsCount: parseInt(e.target.value) })}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                           min="1"
                           required
                         />
                       </div>
                     </div>
-
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Schedule (Optional)
-                      </label>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Schedule (Optional)</label>
                       <input
                         type="datetime-local"
                         value={quizForm.scheduledAt}
-                        onChange={(e) =>
-                          setQuizForm({
-                            ...quizForm,
-                            scheduledAt: e.target.value,
-                          })
-                        }
+                        onChange={(e) => setQuizForm({ ...quizForm, scheduledAt: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                       />
                     </div>
-
                     <div className="flex justify-end space-x-3 pt-4">
                       <button
                         type="button"
