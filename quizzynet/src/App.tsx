@@ -2,19 +2,32 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import Header from './components/Layout/Header';
-import LoginForm from './components/Auth/LoginForm';
+import LoginPortal from './components/Auth/LoginPortal';
 import RegisterForm from './components/Auth/RegisterForm';
+
+// Student Components
 import StudentDashboard from './components/Student/Dashboard';
-import AdminDashboard from './components/Admin/Dashboard';
-import StudentManagement from './components/Admin/StudentManagement';
-import QuizManagement from './components/Admin/QuizManagement';
-import QuestionManagement from './components/Admin/QuestionManagement';
-import ResultsAnalytics from './components/Admin/ResultsAnalytics';
-import Reports from './components/Admin/Reports';
-import SecurityLogs from './components/Admin/SecurityLogs';
+import StudentCourses from './components/Student/Courses';
+import StudentEnrollment from './components/Student/Enrollment';
+import StudentQuiz from './components/Student/Quiz';
+import StudentDisciplinary from './components/Student/Disciplinary';
+import StudentProfile from './components/Student/Profile';
 import QuizInterface from './components/Quiz/QuizInterface';
 import QuizResults from './components/Quiz/QuizResults';
+
+// Faculty Components
+import FacultyDashboard from './components/Faculty/Dashboard';
+import FacultyCourses from './components/Faculty/Courses';
+import FacultyResults from './components/Faculty/Results';
+import FacultyStudentView from './components/Faculty/StudentView';
+import FacultyProfile from './components/Faculty/Profile';
+
+// Admin Components
+import AdminDashboard from './components/Admin/Dashboard';
+import AdminStudents from './components/Admin/Students';
+import AdminCourses from './components/Admin/Courses';
+import AdminQuizzes from './components/Admin/Quizzes';
+import AdminDisciplinary from './components/Admin/Disciplinary';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode; requiredRole?: string }> = ({ 
   children, 
@@ -39,7 +52,7 @@ const AppRoutes: React.FC = () => {
   if (!currentUser) {
     return (
       <Routes>
-        <Route path="/login" element={<LoginForm />} />
+        <Route path="/login" element={<LoginPortal />} />
         <Route path="/register" element={<RegisterForm />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
@@ -47,105 +60,168 @@ const AppRoutes: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Header />
-      <Routes>
-        <Route 
-          path="/" 
-          element={
-            userRole === 'admin' ? 
-              <Navigate to="/admin" replace /> : 
-              <Navigate to="/dashboard" replace />
-          } 
-        />
-        
-        {/* Student Routes */}
-        <Route 
-          path="/dashboard" 
-          element={
-            <ProtectedRoute requiredRole="student">
-              <StudentDashboard />
-            </ProtectedRoute>
-          } 
-        />
-        <Route 
-          path="/quiz/:quizId" 
-          element={
-            <ProtectedRoute requiredRole="student">
-              <QuizInterface />
-            </ProtectedRoute>
-          } 
-        />
-        <Route 
-          path="/results/:resultId" 
-          element={
-            <ProtectedRoute requiredRole="student">
-              <QuizResults />
-            </ProtectedRoute>
-          } 
-        />
+    <Routes>
+      <Route 
+        path="/" 
+        element={
+          userRole === 'admin' ? <Navigate to="/admin" replace /> :
+          userRole === 'faculty' ? <Navigate to="/faculty" replace /> :
+          <Navigate to="/student" replace />
+        } 
+      />
+      
+      {/* Student Routes */}
+      <Route 
+        path="/student" 
+        element={
+          <ProtectedRoute requiredRole="student">
+            <StudentDashboard />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/student/courses" 
+        element={
+          <ProtectedRoute requiredRole="student">
+            <StudentCourses />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/student/enrollment" 
+        element={
+          <ProtectedRoute requiredRole="student">
+            <StudentEnrollment />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/student/quiz" 
+        element={
+          <ProtectedRoute requiredRole="student">
+            <StudentQuiz />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/student/disciplinary" 
+        element={
+          <ProtectedRoute requiredRole="student">
+            <StudentDisciplinary />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/student/profile" 
+        element={
+          <ProtectedRoute requiredRole="student">
+            <StudentProfile />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/quiz/:quizId" 
+        element={
+          <ProtectedRoute requiredRole="student">
+            <QuizInterface />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/results/:resultId" 
+        element={
+          <ProtectedRoute requiredRole="student">
+            <QuizResults />
+          </ProtectedRoute>
+        } 
+      />
 
-        {/* Admin Routes */}
-        <Route 
-          path="/admin" 
-          element={
-            <ProtectedRoute requiredRole="admin">
-              <AdminDashboard />
-            </ProtectedRoute>
-          } 
-        />
-        <Route 
-          path="/admin/students" 
-          element={
-            <ProtectedRoute requiredRole="admin">
-              <StudentManagement />
-            </ProtectedRoute>
-          } 
-        />
-        <Route 
-          path="/admin/quizzes" 
-          element={
-            <ProtectedRoute requiredRole="admin">
-              <QuizManagement />
-            </ProtectedRoute>
-          } 
-        />
-        <Route 
-          path="/admin/questions" 
-          element={
-            <ProtectedRoute requiredRole="admin">
-              <QuestionManagement />
-            </ProtectedRoute>
-          } 
-        />
-        <Route 
-          path="/admin/analytics" 
-          element={
-            <ProtectedRoute requiredRole="admin">
-              <ResultsAnalytics />
-            </ProtectedRoute>
-          } 
-        />
-        <Route 
-          path="/admin/reports" 
-          element={
-            <ProtectedRoute requiredRole="admin">
-              <Reports />
-            </ProtectedRoute>
-          } 
-        />
-        <Route 
-          path="/admin/security" 
-          element={
-            <ProtectedRoute requiredRole="admin">
-              <SecurityLogs />
-            </ProtectedRoute>
-          } 
-        />
-        
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </div>
+      {/* Faculty Routes */}
+      <Route 
+        path="/faculty" 
+        element={
+          <ProtectedRoute requiredRole="faculty">
+            <FacultyDashboard />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/faculty/courses" 
+        element={
+          <ProtectedRoute requiredRole="faculty">
+            <FacultyCourses />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/faculty/results" 
+        element={
+          <ProtectedRoute requiredRole="faculty">
+            <FacultyResults />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/faculty/students" 
+        element={
+          <ProtectedRoute requiredRole="faculty">
+            <FacultyStudentView />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/faculty/profile" 
+        element={
+          <ProtectedRoute requiredRole="faculty">
+            <FacultyProfile />
+          </ProtectedRoute>
+        } 
+      />
+
+      {/* Admin Routes */}
+      <Route 
+        path="/admin" 
+        element={
+          <ProtectedRoute requiredRole="admin">
+            <AdminDashboard />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/admin/students" 
+        element={
+          <ProtectedRoute requiredRole="admin">
+            <AdminStudents />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/admin/courses" 
+        element={
+          <ProtectedRoute requiredRole="admin">
+            <AdminCourses />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/admin/quizzes" 
+        element={
+          <ProtectedRoute requiredRole="admin">
+            <AdminQuizzes />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/admin/disciplinary" 
+        element={
+          <ProtectedRoute requiredRole="admin">
+            <AdminDisciplinary />
+          </ProtectedRoute>
+        } 
+      />
+      
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 };
 
