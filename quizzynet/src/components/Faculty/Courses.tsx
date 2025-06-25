@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BookOpen, Plus, Edit, Trash2, Upload, Download, Eye, Clock, Users } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, orderBy } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { toast } from 'react-hot-toast';
 import Sidebar from '../Layout/Sidebar';
@@ -17,6 +17,7 @@ interface Course {
   facultyName: string;
   isApproved: boolean;
   createdAt: any;
+  approvedAt?: any;
 }
 
 interface Quiz {
@@ -80,61 +81,82 @@ const FacultyCourses: React.FC = () => {
     'Internship'
   ];
 
+  // Fetch courses with real-time updates
   useEffect(() => {
-    if (currentUser && userData) {
-      fetchCourses();
-      fetchQuizzes();
-    }
-  }, [currentUser, userData]);
+    if (!currentUser?.uid) return;
 
-  const fetchCourses = async () => {
-    if (!currentUser) return;
-
-    try {
-      const coursesQuery = query(
+    const unsubscribeCourses = onSnapshot(
+      query(
         collection(db, 'courses'),
         where('facultyId', '==', currentUser.uid),
         orderBy('createdAt', 'desc')
-      );
-      const coursesSnapshot = await getDocs(coursesQuery);
-      const coursesData = coursesSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Course[];
+      ),
+      (snapshot) => {
+        const coursesData = snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            courseCode: data.courseCode || '',
+            courseName: data.courseName || '',
+            subjectCategory: data.subjectCategory || '',
+            courseCategory: data.courseCategory || '',
+            facultyId: data.facultyId || '',
+            facultyName: data.facultyName || '',
+            isApproved: data.isApproved || false,
+            approvedAt: data.approvedAt || null,
+            createdAt: data.createdAt || null
+          } as Course;
+        });
+        setCourses(coursesData);
+        setLoading(false);
+      },
+      (error) => {
+        console.error('Error loading courses:', error);
+        toast.error('Failed to load courses');
+        setLoading(false);
+      }
+    );
 
-      setCourses(coursesData);
-    } catch (error) {
-      console.error('Error fetching courses:', error);
-      toast.error('Error loading courses');
-    } finally {
-      setLoading(false);
-    }
-  };
+    return () => unsubscribeCourses();
+  }, [currentUser]);
 
-  const fetchQuizzes = async () => {
-    if (!currentUser) return;
+  // Fetch quizzes with real-time updates
+  useEffect(() => {
+    if (!currentUser?.uid) return;
 
-    try {
-      const quizzesQuery = query(
+    const unsubscribeQuizzes = onSnapshot(
+      query(
         collection(db, 'quizzes'),
         where('facultyId', '==', currentUser.uid),
         orderBy('createdAt', 'desc')
-      );
-      const quizzesSnapshot = await getDocs(quizzesQuery);
-      const quizzesData = quizzesSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Quiz[];
+      ),
+      (snapshot) => {
+        const quizzesData = snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            title: data.title || '',
+            description: data.description || '',
+            courseId: data.courseId || '',
+            duration: data.duration || 30,
+            questionsCount: data.questionsCount || 10,
+            isActive: data.isActive !== undefined ? data.isActive : true,
+            scheduledAt: data.scheduledAt || null,
+            createdAt: data.createdAt || null
+          } as Quiz;
+        });
+        setQuizzes(quizzesData);
+      },
+      (error) => {
+        console.error('Error loading quizzes:', error);
+        toast.error('Failed to load quizzes');
+      }
+    );
 
-      setQuizzes(quizzesData);
-    } catch (error) {
-      console.error('Error fetching quizzes:', error);
-      toast.error('Error loading quizzes');
-    }
-  };
+    return () => unsubscribeQuizzes();
+  }, [currentUser]);
 
   const generateCourseCode = (subjectCategory: string) => {
-    // Generate course code in format AAA##XX
     const subjectCode = subjectCategory.substring(0, 3).toUpperCase();
     const commonNumber = Math.floor(Math.random() * 100).toString().padStart(2, '0');
     const uniqueId = Math.random().toString(36).substring(2, 4).toUpperCase();
@@ -153,7 +175,7 @@ const FacultyCourses: React.FC = () => {
         courseCode,
         facultyId: currentUser.uid,
         facultyName: `${userData.firstName} ${userData.lastName}`,
-        isApproved: false, // Requires admin approval
+        isApproved: false,
         createdAt: new Date()
       });
 
@@ -165,7 +187,6 @@ const FacultyCourses: React.FC = () => {
         subjectCategory: '',
         courseCategory: ''
       });
-      fetchCourses();
     } catch (error) {
       console.error('Error creating course:', error);
       toast.error('Error creating course');
@@ -177,6 +198,12 @@ const FacultyCourses: React.FC = () => {
     if (!currentUser || !userData) return;
 
     try {
+      // Only allow quizzes for approved courses
+      const selectedCourse = courses.find(c => c.id === quizForm.courseId);
+      if (!selectedCourse?.isApproved) {
+        throw new Error('Course must be approved by admin');
+      }
+      
       const scheduledAt = quizForm.scheduledAt ? new Date(quizForm.scheduledAt) : null;
       
       await addDoc(collection(db, 'quizzes'), {
@@ -198,10 +225,9 @@ const FacultyCourses: React.FC = () => {
         questionsCount: 10,
         scheduledAt: ''
       });
-      fetchQuizzes();
     } catch (error) {
       console.error('Error creating quiz:', error);
-      toast.error('Error creating quiz');
+      toast.error(error.message || 'Error creating quiz');
     }
   };
 
@@ -270,7 +296,12 @@ const FacultyCourses: React.FC = () => {
                 </button>
                 <button
                   onClick={() => setShowCreateQuiz(true)}
-                  className="inline-flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                  disabled={courses.filter(c => c.isApproved).length === 0}
+                  className={`inline-flex items-center px-4 py-2 rounded-lg transition-colors ${
+                    courses.filter(c => c.isApproved).length === 0
+                      ? 'bg-gray-400 cursor-not-allowed'
+                      : 'bg-purple-600 hover:bg-purple-700 text-white'
+                  }`}
                 >
                   <Plus className="w-4 h-4 mr-2" />
                   Create Quiz
@@ -282,120 +313,172 @@ const FacultyCourses: React.FC = () => {
           {/* Courses Section */}
           <div className="mb-8">
             <h2 className="text-xl font-semibold text-gray-900 mb-4">My Courses</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {courses.map((course) => (
-                <div key={course.id} className="bg-white rounded-lg shadow-md p-6">
-                  <div className="flex items-start justify-between mb-4">
-                    <div>
-                      <h3 className="font-semibold text-gray-900">{course.courseCode}</h3>
-                      <p className="text-sm text-gray-500">{course.subjectCategory}</p>
+            {courses.length === 0 ? (
+              <div className="bg-white rounded-lg shadow-md p-6 text-center">
+                <BookOpen className="w-12 h-12 mx-auto text-gray-400" />
+                <p className="mt-4 text-gray-600">No courses found</p>
+                <button
+                  onClick={() => setShowCreateCourse(true)}
+                  className="mt-4 inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Create Your First Course
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {courses.map((course) => (
+                  <div key={course.id} className="bg-white rounded-lg shadow-md p-6">
+                    <div className="flex items-start justify-between mb-4">
+                      <div>
+                        <h3 className="font-semibold text-gray-900">{course.courseCode}</h3>
+                        <p className="text-sm text-gray-500">{course.subjectCategory}</p>
+                      </div>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        course.isApproved ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {course.isApproved ? 'Approved' : 'Pending'}
+                      </span>
                     </div>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      course.isApproved ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-                    }`}>
-                      {course.isApproved ? 'Approved' : 'Pending'}
-                    </span>
+                    
+                    <h4 className="text-lg font-medium text-gray-900 mb-2">{course.courseName}</h4>
+                    <p className="text-sm text-gray-600 mb-4">Category: {course.courseCategory}</p>
+                    
+                    {course.isApproved && (
+                      <p className="text-xs text-gray-500 mb-2">
+                        Approved on: {course.approvedAt?.toDate().toLocaleDateString()}
+                      </p>
+                    )}
+                    
+                    <div className="flex space-x-2">
+                      <button className="flex-1 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm">
+                        <Eye className="w-4 h-4 inline mr-1" />
+                        View
+                      </button>
+                      {!course.isApproved && (
+                        <button className="px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
+                          <Edit className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  
-                  <h4 className="text-lg font-medium text-gray-900 mb-2">{course.courseName}</h4>
-                  <p className="text-sm text-gray-600 mb-4">Category: {course.courseCategory}</p>
-                  
-                  <div className="flex space-x-2">
-                    <button className="flex-1 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm">
-                      <Eye className="w-4 h-4 inline mr-1" />
-                      View
-                    </button>
-                    <button className="px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
-                      <Edit className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Quizzes Section */}
           <div>
             <h2 className="text-xl font-semibold text-gray-900 mb-4">My Quizzes</h2>
-            <div className="space-y-4">
-              {quizzes.map((quiz) => (
-                <div key={quiz.id} className="bg-white rounded-lg shadow-md p-6">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1">
-                      <h3 className="text-lg font-semibold text-gray-900">{quiz.title}</h3>
-                      <p className="text-gray-600 mb-2">{quiz.description}</p>
-                      <div className="flex items-center space-x-4 text-sm text-gray-500">
-                        <span className="flex items-center">
-                          <Clock className="w-4 h-4 mr-1" />
-                          {quiz.duration} min
-                        </span>
-                        <span className="flex items-center">
-                          <BookOpen className="w-4 h-4 mr-1" />
-                          {quiz.questionsCount} questions
-                        </span>
-                        {quiz.scheduledAt && (
-                          <span>
-                            Scheduled: {quiz.scheduledAt.toDate().toLocaleString()}
+            {quizzes.length === 0 ? (
+              <div className="bg-white rounded-lg shadow-md p-6 text-center">
+                <Clock className="w-12 h-12 mx-auto text-gray-400" />
+                <p className="mt-4 text-gray-600">No quizzes found</p>
+                <button
+                  onClick={() => setShowCreateQuiz(true)}
+                  disabled={courses.filter(c => c.isApproved).length === 0}
+                  className={`mt-4 inline-flex items-center px-4 py-2 rounded-lg transition-colors ${
+                    courses.filter(c => c.isApproved).length === 0
+                      ? 'bg-gray-400 cursor-not-allowed'
+                      : 'bg-purple-600 hover:bg-purple-700 text-white'
+                  }`}
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Create Your First Quiz
+                </button>
+                {courses.filter(c => c.isApproved).length === 0 && (
+                  <p className="mt-2 text-sm text-red-500">You need at least one approved course to create a quiz</p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {quizzes.map((quiz) => {
+                  const course = courses.find(c => c.id === quiz.courseId);
+                  return (
+                    <div key={quiz.id} className="bg-white rounded-lg shadow-md p-6">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex-1">
+                          <h3 className="text-lg font-semibold text-gray-900">{quiz.title}</h3>
+                          <p className="text-gray-600 mb-2">{quiz.description}</p>
+                          {course && (
+                            <p className="text-sm text-gray-500 mb-2">
+                              For: {course.courseCode} - {course.courseName}
+                            </p>
+                          )}
+                          <div className="flex items-center space-x-4 text-sm text-gray-500">
+                            <span className="flex items-center">
+                              <Clock className="w-4 h-4 mr-1" />
+                              {quiz.duration} min
+                            </span>
+                            <span className="flex items-center">
+                              <BookOpen className="w-4 h-4 mr-1" />
+                              {quiz.questionsCount} questions
+                            </span>
+                            {quiz.scheduledAt && (
+                              <span>
+                                Scheduled: {quiz.scheduledAt.toDate().toLocaleString()}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            quiz.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                          }`}>
+                            {quiz.isActive ? 'Active' : 'Inactive'}
                           </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        quiz.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {quiz.isActive ? 'Active' : 'Inactive'}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  <div className="border-t pt-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <input
-                          type="file"
-                          accept=".csv"
-                          onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
-                          className="hidden"
-                          id={`csv-upload-${quiz.id}`}
-                        />
-                        <label
-                          htmlFor={`csv-upload-${quiz.id}`}
-                          className="inline-flex items-center px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors cursor-pointer text-sm"
-                        >
-                          <Upload className="w-4 h-4 mr-1" />
-                          Upload Questions
-                        </label>
-                        {csvFile && (
-                          <button
-                            onClick={() => handleFileUpload(quiz.id)}
-                            disabled={uploading}
-                            className="inline-flex items-center px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 text-sm"
-                          >
-                            {uploading ? 'Uploading...' : 'Save Questions'}
-                          </button>
-                        )}
+                        </div>
                       </div>
                       
-                      <div className="flex space-x-2">
-                        <button className="px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button className="px-3 py-2 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                      <div className="border-t pt-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <input
+                              type="file"
+                              accept=".csv"
+                              onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
+                              className="hidden"
+                              id={`csv-upload-${quiz.id}`}
+                            />
+                            <label
+                              htmlFor={`csv-upload-${quiz.id}`}
+                              className="inline-flex items-center px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors cursor-pointer text-sm"
+                            >
+                              <Upload className="w-4 h-4 mr-1" />
+                              Upload Questions
+                            </label>
+                            {csvFile && (
+                              <button
+                                onClick={() => handleFileUpload(quiz.id)}
+                                disabled={uploading}
+                                className="inline-flex items-center px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 text-sm"
+                              >
+                                {uploading ? 'Uploading...' : 'Save Questions'}
+                              </button>
+                            )}
+                          </div>
+                          
+                          <div className="flex space-x-2">
+                            <button className="px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button className="px-3 py-2 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                        
+                        {csvFile && (
+                          <div className="mt-2 text-sm text-gray-600">
+                            Selected file: {csvFile.name} ({(csvFile.size / (1024 * 1024)).toFixed(2)} MB)
+                          </div>
+                        )}
                       </div>
                     </div>
-                    
-                    {csvFile && (
-                      <div className="mt-2 text-sm text-gray-600">
-                        Selected file: {csvFile.name} ({(csvFile.size / (1024 * 1024)).toFixed(2)} MB)
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Create Course Modal */}
