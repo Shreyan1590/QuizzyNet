@@ -82,7 +82,7 @@ const Sidebar: React.FC = () => {
             {userRole === 'admin' && <Shield className="w-6 h-6 text-white" />}
           </div>
           <div>
-            <h2 className="text-lg font-bold text-gray-900">EduPortal</h2>
+            <h2 className="text-lg font-bold text-gray-900">QuizzyNet</h2>
             <p className="text-sm text-gray-500 capitalize">{userRole} Portal</p>
           </div>
         </div>
