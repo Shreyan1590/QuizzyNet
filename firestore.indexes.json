@@ -2,27 +2,3 @@
   "indexes": [],
   "fieldOverrides": []
 }
-
-{
-  "indexes": [
-    {
-      "collectionGroup": "quizzes",
-      "queryScope": "COLLECTION",
-      "fields": [
-        {"fieldPath": "status", "order": "ASCENDING"},
-        {"fieldPath": "isActive", "order": "ASCENDING"},
-        {"fieldPath": "createdAt", "order": "DESCENDING"}
-      ]
-    }
-  ]
-}
-
-{
-  "fieldOverrides": [
-    {
-      "collectionGroup": "quizzes",
-      "fieldPath": "createdAt",
-      "arrayConfig": "CONTAINS"
-    }
-  ]
-}
