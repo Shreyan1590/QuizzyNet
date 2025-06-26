@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   BookOpen, Users, BarChart3, Award, Plus, Clock, 
   CheckCircle, TrendingUp, Calendar, Target, UserCheck, UserX 
@@ -6,7 +6,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { 
   collection, query, where, orderBy, onSnapshot, 
-  doc, updateDoc, getDocs, addDoc, serverTimestamp 
+  doc, updateDoc, getDocs, runTransaction, serverTimestamp 
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { Link } from 'react-router-dom';
@@ -22,13 +22,10 @@ interface Course {
   courseCode: string;
   extendedCode: string;
   courseName: string;
-  subjectCategory: string;
-  courseCategory: string;
   facultyId: string;
-  facultyName: string;
   isApproved: boolean;
   enrolledStudents: number;
-  pendingApprovals: string[]; // student IDs
+  pendingApprovals: string[];
   createdAt: any;
 }
 
@@ -36,13 +33,10 @@ interface Quiz {
   id: string;
   title: string;
   courseId: string;
-  courseCode: string;
   facultyId: string;
-  isActive: boolean;
   questionsCount: number;
   scheduledAt: any;
-  duration: number; // in minutes
-  createdAt: any;
+  duration: number;
   attempts: number;
   averageScore: number;
   status: 'scheduled' | 'ongoing' | 'completed';
@@ -51,20 +45,16 @@ interface Quiz {
 interface Student {
   id: string;
   name: string;
-  email: string;
-  enrolledCourses: string[]; // course IDs
+  enrolledCourses: string[];
 }
 
 interface QuizResult {
   id: string;
   quizId: string;
-  courseId: string;
-  studentId: string;
   studentName: string;
   score: number;
-  totalQuestions: number;
-  submittedAt: any | null;
   status: 'completed' | 'absent' | 'pending';
+  submittedAt: any | null;
 }
 
 const FacultyDashboard: React.FC = () => {
@@ -72,10 +62,8 @@ const FacultyDashboard: React.FC = () => {
   const [stats, setStats] = useState({
     totalCourses: 0,
     approvedCourses: 0,
-    pendingCourses: 0,
     totalQuizzes: 0,
     activeQuizzes: 0,
-    upcomingQuizzes: 0,
     totalStudents: 0,
     pendingApprovals: 0,
     averageScore: 0
@@ -84,11 +72,9 @@ const FacultyDashboard: React.FC = () => {
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [quizResults, setQuizResults] = useState<QuizResult[]>([]);
-  const [subjectCategories, setSubjectCategories] = useState<{code: string, name: string}[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Initialize real-time listeners
   useEffect(() => {
     if (!currentUser || !userData) {
       setLoading(false);
@@ -97,19 +83,6 @@ const FacultyDashboard: React.FC = () => {
 
     const unsubscribeFunctions: (() => void)[] = [];
 
-    // Load subject categories (common course codes)
-    const loadSubjectCategories = async () => {
-      try {
-        const q = query(collection(db, 'subjectCategories'));
-        const querySnapshot = await getDocs(q);
-        const categories = querySnapshot.docs.map(doc => doc.data() as {code: string, name: string});
-        setSubjectCategories(categories);
-      } catch (error) {
-        console.error('Error loading subject categories:', error);
-      }
-    };
-    loadSubjectCategories();
-
     // Courses listener
     const coursesQuery = query(
       collection(db, 'courses'),
@@ -117,8 +90,7 @@ const FacultyDashboard: React.FC = () => {
       orderBy('createdAt', 'desc')
     );
     
-    const unsubscribeCourses = onSnapshot(
-      coursesQuery,
+    const unsubscribeCourses = onSnapshot(coursesQuery, 
       (snapshot) => {
         const coursesData = snapshot.docs.map(doc => ({
           id: doc.id,
@@ -128,11 +100,17 @@ const FacultyDashboard: React.FC = () => {
         })) as Course[];
         
         setCourses(coursesData);
-        calculateCourseStats(coursesData);
+        setStats(prev => ({
+          ...prev,
+          totalCourses: coursesData.length,
+          approvedCourses: coursesData.filter(c => c.isApproved).length,
+          pendingApprovals: coursesData.reduce((sum, c) => sum + (c.pendingApprovals?.length || 0), 0),
+          totalStudents: coursesData.reduce((sum, c) => sum + (c.enrolledStudents || 0), 0)
+        }));
       },
       (error) => {
-        console.error('Courses listener error:', error);
-        setError('Failed to load courses data');
+        console.error('Courses error:', error);
+        setError('Failed to load courses');
       }
     );
     unsubscribeFunctions.push(unsubscribeCourses);
@@ -144,312 +122,204 @@ const FacultyDashboard: React.FC = () => {
       orderBy('scheduledAt', 'desc')
     );
     
-    const unsubscribeQuizzes = onSnapshot(
-      quizzesQuery,
+    const unsubscribeQuizzes = onSnapshot(quizzesQuery, 
       (snapshot) => {
+        const now = new Date();
         const quizzesData = snapshot.docs.map(doc => {
-          const quizData = doc.data();
-          const now = new Date();
-          const scheduledAt = quizData.scheduledAt?.toDate();
+          const data = doc.data();
+          const scheduledAt = data.scheduledAt?.toDate();
           let status: Quiz['status'] = 'scheduled';
           
           if (scheduledAt) {
-            if (now > scheduledAt) {
-              const endTime = new Date(scheduledAt.getTime() + (quizData.duration || 60) * 60000);
-              status = now > endTime ? 'completed' : 'ongoing';
-            }
+            const endTime = new Date(scheduledAt.getTime() + (data.duration || 60) * 60000);
+            status = now > endTime ? 'completed' : now > scheduledAt ? 'ongoing' : 'scheduled';
           }
           
           return {
             id: doc.id,
-            ...quizData,
+            ...data,
             status,
-            attempts: quizData.attempts || 0,
-            averageScore: quizData.averageScore || 0,
-            duration: quizData.duration || 60
+            attempts: data.attempts || 0,
+            averageScore: data.averageScore || 0,
+            duration: data.duration || 60
           } as Quiz;
         });
         
         setQuizzes(quizzesData);
-        calculateQuizStats(quizzesData);
+        setStats(prev => ({
+          ...prev,
+          totalQuizzes: quizzesData.length,
+          activeQuizzes: quizzesData.filter(q => q.status === 'ongoing').length,
+          averageScore: quizzesData.length > 0 
+            ? Math.round(quizzesData.reduce((sum, q) => sum + (q.averageScore || 0), 0) / quizzesData.length)
+            : 0
+        }));
       },
       (error) => {
-        console.error('Quizzes listener error:', error);
-        setError('Failed to load quizzes data');
+        console.error('Quizzes error:', error);
+        setError('Failed to load quizzes');
       }
     );
     unsubscribeFunctions.push(unsubscribeQuizzes);
 
-    // Students listener (for enrollment approvals)
+    // Students listener
     const studentsQuery = query(
       collection(db, 'students'),
       where('enrolledCourses', 'array-contains-any', courses.map(c => c.id))
     );
     
-    const unsubscribeStudents = onSnapshot(
-      studentsQuery,
+    const unsubscribeStudents = onSnapshot(studentsQuery, 
       (snapshot) => {
-        const studentsData = snapshot.docs.map(doc => ({
+        setStudents(snapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data(),
           enrolledCourses: doc.data().enrolledCourses || []
-        })) as Student[];
-        
-        setStudents(studentsData);
+        }) as Student));
       },
       (error) => {
-        console.error('Students listener error:', error);
-        setError('Failed to load students data');
+        console.error('Students error:', error);
+        setError('Failed to load students');
       }
     );
     unsubscribeFunctions.push(unsubscribeStudents);
 
-    // Quiz results listener
+    // Results listener
     const resultsQuery = query(
       collection(db, 'quizResults'),
       where('facultyId', '==', currentUser.uid),
       orderBy('submittedAt', 'desc')
     );
     
-    const unsubscribeResults = onSnapshot(
-      resultsQuery,
+    const unsubscribeResults = onSnapshot(resultsQuery, 
       (snapshot) => {
-        const resultsData = snapshot.docs.map(doc => ({
+        setQuizResults(snapshot.docs.map(doc => ({
           id: doc.id,
           ...doc.data(),
           submittedAt: doc.data().submittedAt || null,
           status: doc.data().status || 'pending',
           score: doc.data().score || 0
-        })) as QuizResult[];
-        
-        setQuizResults(resultsData);
-        calculateStudentPerformance(resultsData);
+        } as QuizResult));
       },
       (error) => {
-        console.error('Results listener error:', error);
-        setError('Failed to load results data');
+        console.error('Results error:', error);
+        setError('Failed to load results');
       }
     );
     unsubscribeFunctions.push(unsubscribeResults);
 
     setLoading(false);
-    
-    return () => {
-      unsubscribeFunctions.forEach(unsub => unsub());
-    };
+    return () => unsubscribeFunctions.forEach(unsub => unsub());
   }, [currentUser, userData]);
 
-  const calculateCourseStats = (coursesData: Course[]) => {
-    const approved = coursesData.filter(c => c.isApproved).length;
-    const pending = coursesData.filter(c => !c.isApproved).length;
-    const totalStudents = coursesData.reduce((sum, course) => sum + (course.enrolledStudents || 0), 0);
-    const pendingApprovals = coursesData.reduce((sum, course) => sum + (course.pendingApprovals?.length || 0), 0);
-
-    setStats(prev => ({
-      ...prev,
-      totalCourses: coursesData.length,
-      approvedCourses: approved,
-      pendingCourses: pending,
-      totalStudents,
-      pendingApprovals
-    }));
-  };
-
-  const calculateQuizStats = (quizzesData: Quiz[]) => {
-    const active = quizzesData.filter(q => q.status === 'ongoing').length;
-    const upcoming = quizzesData.filter(q => q.status === 'scheduled').length;
-    const scores = quizzesData.map(q => q.averageScore || 0);
-    const averageScore = scores.length > 0 
-      ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
-      : 0;
-
-    setStats(prev => ({
-      ...prev,
-      totalQuizzes: quizzesData.length,
-      activeQuizzes: active,
-      upcomingQuizzes: upcoming,
-      averageScore
-    }));
-  };
-
-  const calculateStudentPerformance = (results: QuizResult[]) => {
-    if (!results.length) return;
-
-    const completedResults = results.filter(r => r.status === 'completed');
-    const absentResults = results.filter(r => r.status === 'absent');
-    
-    // Update analytics based on results
-    const analyticsData = {
-      completionRate: completedResults.length > 0 
-        ? Math.round((completedResults.length / results.length) * 100)
-        : 0,
-      averageScore: completedResults.length > 0
-        ? Math.round(completedResults.reduce((sum, r) => sum + r.score, 0) / completedResults.length)
-        : 0,
-      absentCount: absentResults.length
-    };
-
-    // You can store these analytics in state or send to Firestore
-  };
-
-  // Generate extended course code
-  const generateExtendedCode = async (baseCode: string) => {
-    try {
-      // Find all courses with the same base code
-      const q = query(
-        collection(db, 'courses'),
-        where('courseCode', '==', baseCode),
-        orderBy('extendedCode', 'desc'),
-        limit(1)
-      );
-      
-      const querySnapshot = await getDocs(q);
-      let lastNumber = 0;
-      
-      if (!querySnapshot.empty) {
-        const lastCode = querySnapshot.docs[0].data().extendedCode;
-        const match = lastCode.match(/\d+$/);
-        if (match) lastNumber = parseInt(match[0]);
-      }
-      
-      // Increment and pad with leading zero
-      const nextNumber = (lastNumber + 1).toString().padStart(2, '0');
-      return `${baseCode}${nextNumber}`;
-    } catch (error) {
-      console.error('Error generating extended code:', error);
-      return `${baseCode}01`; // fallback
-    }
-  };
-
-  // Approve/reject student enrollment
   const handleEnrollmentAction = async (courseId: string, studentId: string, action: 'approve' | 'reject') => {
     try {
       const courseRef = doc(db, 'courses', courseId);
       const studentRef = doc(db, 'students', studentId);
       
-      await db.runTransaction(async (transaction) => {
-        const courseDoc = await transaction.get(courseRef);
-        const studentDoc = await transaction.get(studentRef);
+      await runTransaction(db, async (transaction) => {
+        const [courseDoc, studentDoc] = await Promise.all([
+          transaction.get(courseRef),
+          transaction.get(studentRef)
+        ]);
         
         if (!courseDoc.exists() || !studentDoc.exists()) {
           throw new Error('Document not found');
         }
         
         const courseData = courseDoc.data() as Course;
-        const studentData = studentDoc.data() as Student;
-        
-        // Remove from pending approvals
         const updatedPending = courseData.pendingApprovals?.filter(id => id !== studentId) || [];
         
         if (action === 'approve') {
-          // Add to enrolled students if not already
+          const studentData = studentDoc.data() as Student;
           if (!studentData.enrolledCourses.includes(courseId)) {
             transaction.update(studentRef, {
               enrolledCourses: [...studentData.enrolledCourses, courseId]
             });
-            
-            transaction.update(courseRef, {
-              enrolledStudents: (courseData.enrolledStudents || 0) + 1,
-              pendingApprovals: updatedPending
-            });
           }
-        } else {
-          // Just remove from pending
-          transaction.update(courseRef, {
-            pendingApprovals: updatedPending
-          });
         }
+        
+        transaction.update(courseRef, {
+          ...(action === 'approve' && { 
+            enrolledStudents: (courseData.enrolledStudents || 0) + 1 
+          }),
+          pendingApprovals: updatedPending
+        });
       });
       
-      toast.success(`Enrollment ${action}d successfully`);
+      toast.success(`Enrollment ${action}d`);
     } catch (error) {
       console.error(`Error ${action}ing enrollment:`, error);
       toast.error(`Failed to ${action} enrollment`);
     }
   };
 
-  // Schedule a quiz
   const scheduleQuiz = async (quizId: string, date: Date) => {
     try {
-      const quizRef = doc(db, 'quizzes', quizId);
-      await updateDoc(quizRef, {
+      await updateDoc(doc(db, 'quizzes', quizId), {
         scheduledAt: date,
         status: 'scheduled'
       });
-      
-      toast.success('Quiz scheduled successfully');
+      toast.success('Quiz scheduled');
     } catch (error) {
-      console.error('Error scheduling quiz:', error);
-      toast.error('Failed to schedule quiz');
+      console.error('Scheduling error:', error);
+      toast.error('Failed to schedule');
     }
   };
 
-  // Render loading state
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <Sidebar />
-        <Header />
-        <div className="ml-64 pt-16 flex items-center justify-center h-screen">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
-            <p className="mt-4 text-gray-600">Loading dashboard...</p>
-          </div>
+  if (loading) return (
+    <div className="min-h-screen bg-gray-50">
+      <Sidebar />
+      <Header />
+      <div className="ml-64 pt-16 flex items-center justify-center h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading dashboard...</p>
         </div>
       </div>
-    );
-  }
+    </div>
+  );
 
-  // Render error state
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <Sidebar />
-        <Header />
-        <div className="ml-64 pt-16 flex items-center justify-center h-screen">
-          <div className="text-center p-4 bg-red-50 rounded-lg max-w-md">
-            <h3 className="text-lg font-medium text-red-800">Error</h3>
-            <p className="mt-2 text-red-600">{error}</p>
-            <button 
-              onClick={() => window.location.reload()}
-              className="mt-4 px-4 py-2 bg-red-100 text-red-700 rounded-md hover:bg-red-200"
-            >
-              Retry
-            </button>
-          </div>
+  if (error) return (
+    <div className="min-h-screen bg-gray-50">
+      <Sidebar />
+      <Header />
+      <div className="ml-64 pt-16 flex items-center justify-center h-screen">
+        <div className="text-center p-4 bg-red-50 rounded-lg max-w-md">
+          <h3 className="text-lg font-medium text-red-800">Error</h3>
+          <p className="mt-2 text-red-600">{error}</p>
+          <button 
+            onClick={() => window.location.reload()}
+            className="mt-4 px-4 py-2 bg-red-100 text-red-700 rounded-md hover:bg-red-200"
+          >
+            Retry
+          </button>
         </div>
       </div>
-    );
-  }
+    </div>
+  );
 
-  // Render authentication required state
-  if (!currentUser || !userData) {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <Sidebar />
-        <Header />
-        <div className="ml-64 pt-16 flex items-center justify-center h-screen">
-          <div className="text-center">
-            <h3 className="text-lg font-medium text-gray-900">Authentication Required</h3>
-            <p className="mt-2 text-gray-600">Please log in to access the faculty dashboard</p>
-          </div>
+  if (!currentUser || !userData) return (
+    <div className="min-h-screen bg-gray-50">
+      <Sidebar />
+      <Header />
+      <div className="ml-64 pt-16 flex items-center justify-center h-screen">
+        <div className="text-center">
+          <h3 className="text-lg font-medium text-gray-900">Authentication Required</h3>
+          <p className="mt-2 text-gray-600">Please log in to access the faculty dashboard</p>
         </div>
       </div>
-    );
-  }
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Sidebar />
       <Header />
-      
-      <div className="ml-64 pt-16">
-        <div className="p-8">
-          {/* Welcome Section */}
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900">Welcome back, {userData?.firstName}!</h1>
-            <p className="mt-2 text-gray-600">Faculty ID: {userData?.facultyId} • Department: {userData?.department}</p>
-          </div>
+      <div className="ml-64 pt-16 p-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">Welcome back, {userData.firstName}!</h1>
+          <p className="mt-2 text-gray-600">Faculty ID: {userData.facultyId} • Department: {userData.department}</p>
+        </div>
 
           {/* Key Metrics Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -740,7 +610,6 @@ const FacultyDashboard: React.FC = () => {
           </div>
         </div>
       </div>
-    </div>
   );
 };
 

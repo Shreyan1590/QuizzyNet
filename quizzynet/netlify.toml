@@ -1,21 +1,13 @@
 [build]
-  command = "CI= npm run build"
-  publish = "dist"
-  functions = "functions"  # Only include if using Netlify functions
+  command = "npm run build"
+  publish = "dist"  # ✅ Vite uses 'dist' instead of 'build'
+  functions = "functions"  # Remove if not using Netlify Functions
 
 [build.environment]
-  NODE_VERSION = "18"
+  NODE_VERSION = "18"  # Matches your local version
   NPM_FLAGS = "--legacy-peer-deps"  # Helps with dependency conflicts
-  CI = false  # Disables CI-specific behavior that may cause issues
 
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
-
-[[headers]]
-  for = "/*"
-  [headers.values]
-    X-Frame-Options = "DENY"
-    X-XSS-Protection = "1; mode=block"
-    Referrer-Policy = "strict-origin-when-cross-origin"
