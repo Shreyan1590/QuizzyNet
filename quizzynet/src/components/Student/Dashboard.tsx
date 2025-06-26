@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, BookOpen, Award, TrendingUp, PlayCircle, History, AlertTriangle, Users, Calendar, Target, BarChart3 } from 'lucide-react';
+import { Clock, BookOpen, Award, TrendingUp, PlayCircle, History, Users, BarChart3 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { collection, query, where, getDocs, orderBy, onSnapshot, doc } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, doc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { Link } from 'react-router-dom';
-import { toast } from 'react-hot-toast';
 import Sidebar from '../Layout/Sidebar';
 import Header from '../Layout/Header';
 
@@ -80,7 +79,6 @@ const StudentDashboard: React.FC = () => {
   const initializeRealTimeListeners = () => {
     if (!currentUser || !userData) return;
 
-    // Real-time listener for student data updates
     const studentDocRef = doc(db, 'students', currentUser.uid);
     const unsubscribeStudent = onSnapshot(studentDocRef, (doc) => {
       if (doc.exists()) {
@@ -89,7 +87,6 @@ const StudentDashboard: React.FC = () => {
       }
     });
 
-    // Real-time listener for courses
     const coursesQuery = query(
       collection(db, 'courses'),
       where('isApproved', '==', true)
@@ -99,11 +96,9 @@ const StudentDashboard: React.FC = () => {
         id: doc.id,
         ...doc.data()
       })) as Course[];
-      
       processCourseData(allCourses);
     });
 
-    // Real-time listener for quizzes
     const quizzesQuery = query(
       collection(db, 'quizzes'),
       where('isActive', '==', true),
@@ -114,11 +109,9 @@ const StudentDashboard: React.FC = () => {
         id: doc.id,
         ...doc.data()
       })) as Quiz[];
-      
       processQuizData(quizzes);
     });
 
-    // Real-time listener for quiz results
     const resultsQuery = query(
       collection(db, 'quizResults'),
       where('studentId', '==', currentUser.uid),
@@ -129,14 +122,12 @@ const StudentDashboard: React.FC = () => {
         id: doc.id,
         ...doc.data()
       })) as QuizResult[];
-      
       setRecentResults(results.slice(0, 5));
       calculatePerformanceStats(results);
     });
 
     setLoading(false);
 
-    // Cleanup function
     return () => {
       unsubscribeStudent();
       unsubscribeCourses();
@@ -154,7 +145,7 @@ const StudentDashboard: React.FC = () => {
     ).map(course => ({
       ...course,
       status: 'enrolled' as const,
-      progress: Math.floor(Math.random() * 100) // Simulated progress
+      progress: Math.floor(Math.random() * 100)
     }));
 
     const completed = allCourses.filter(course => 
@@ -176,7 +167,6 @@ const StudentDashboard: React.FC = () => {
       enrolledCourseIds.includes(quiz.courseId)
     );
 
-    // Filter upcoming quizzes (next 7 days)
     const now = new Date();
     const nextWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
     
@@ -187,6 +177,7 @@ const StudentDashboard: React.FC = () => {
     });
 
     setUpcomingQuizzes(upcoming);
+    setStats(prev => ({ ...prev, upcomingDeadlines: upcoming.length }));
   };
 
   const calculatePerformanceStats = (results: QuizResult[]) => {
@@ -200,7 +191,7 @@ const StudentDashboard: React.FC = () => {
       ...prev,
       completedQuizzes: results.length,
       averageScore,
-      totalStudyTime: Math.round(totalStudyTime / 60) // Convert to minutes
+      totalStudyTime: Math.round(totalStudyTime / 60)
     }));
   };
 
@@ -218,8 +209,7 @@ const StudentDashboard: React.FC = () => {
       ...prev,
       enrolledCourses: studentData.enrolledCourses?.length || 0,
       completedCourses: studentData.completedCourses?.length || 0,
-      currentGPA: progress.currentGPA || 0,
-      upcomingDeadlines: upcomingQuizzes.length
+      currentGPA: progress.currentGPA || 0
     }));
   };
 

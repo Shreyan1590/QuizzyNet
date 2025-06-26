@@ -68,70 +68,89 @@ const FacultyDashboard: React.FC = () => {
     engagementScore: 0
   });
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (currentUser && userData) {
-      initializeRealTimeListeners();
-    }
-  }, [currentUser, userData]);
-
-  const initializeRealTimeListeners = () => {
     if (!currentUser) return;
 
-    // Real-time listener for faculty courses
-    const coursesQuery = query(
-      collection(db, 'courses'),
-      where('facultyId', '==', currentUser.uid),
-      orderBy('createdAt', 'desc')
-    );
-    const unsubscribeCourses = onSnapshot(coursesQuery, (snapshot) => {
-      const courses = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        enrolledStudents: Math.floor(Math.random() * 50) + 10 // Simulated enrollment
-      })) as Course[];
-      
-      setRecentCourses(courses.slice(0, 5));
-      calculateCourseStats(courses);
-    });
+    const unsubscribeFunctions: (() => void)[] = [];
 
-    // Real-time listener for faculty quizzes
-    const quizzesQuery = query(
-      collection(db, 'quizzes'),
-      where('facultyId', '==', currentUser.uid),
-      orderBy('createdAt', 'desc')
-    );
-    const unsubscribeQuizzes = onSnapshot(quizzesQuery, (snapshot) => {
-      const quizzes = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        attempts: Math.floor(Math.random() * 100) + 5,
-        averageScore: Math.floor(Math.random() * 40) + 60
-      })) as Quiz[];
+    try {
+      // Courses listener
+      const coursesQuery = query(
+        collection(db, 'courses'),
+        where('facultyId', '==', currentUser.uid),
+        orderBy('createdAt', 'desc')
+      );
+      const unsubscribeCourses = onSnapshot(coursesQuery, 
+        (snapshot) => {
+          const courses = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            enrolledStudents: Math.floor(Math.random() * 50) + 10
+          })) as Course[];
+          setRecentCourses(courses.slice(0, 5));
+          calculateCourseStats(courses);
+        },
+        (err) => {
+          console.error("Courses listener error:", err);
+          setError("Failed to load courses data");
+        }
+      );
+      unsubscribeFunctions.push(unsubscribeCourses);
 
-      setRecentQuizzes(quizzes.slice(0, 5));
-      calculateQuizStats(quizzes);
-    });
+      // Quizzes listener
+      const quizzesQuery = query(
+        collection(db, 'quizzes'),
+        where('facultyId', '==', currentUser.uid),
+        orderBy('createdAt', 'desc')
+      );
+      const unsubscribeQuizzes = onSnapshot(quizzesQuery, 
+        (snapshot) => {
+          const quizzes = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            attempts: Math.floor(Math.random() * 100) + 5,
+            averageScore: Math.floor(Math.random() * 40) + 60
+          })) as Quiz[];
+          setRecentQuizzes(quizzes.slice(0, 5));
+          calculateQuizStats(quizzes);
+        },
+        (err) => {
+          console.error("Quizzes listener error:", err);
+          setError("Failed to load quizzes data");
+        }
+      );
+      unsubscribeFunctions.push(unsubscribeQuizzes);
 
-    // Real-time listener for quiz results to calculate student performance
-    const resultsQuery = query(
-      collection(db, 'quizResults'),
-      orderBy('completedAt', 'desc')
-    );
-    const unsubscribeResults = onSnapshot(resultsQuery, (snapshot) => {
-      const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      calculateStudentPerformance(results);
-    });
+      // Results listener
+      const resultsQuery = query(
+        collection(db, 'quizResults'),
+        orderBy('completedAt', 'desc')
+      );
+      const unsubscribeResults = onSnapshot(resultsQuery, 
+        (snapshot) => {
+          const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          calculateStudentPerformance(results);
+        },
+        (err) => {
+          console.error("Results listener error:", err);
+          setError("Failed to load results data");
+        }
+      );
+      unsubscribeFunctions.push(unsubscribeResults);
 
-    setLoading(false);
+      setLoading(false);
+    } catch (err) {
+      console.error("Initialization error:", err);
+      setError("Failed to initialize dashboard");
+      setLoading(false);
+    }
 
-    // Cleanup function
     return () => {
-      unsubscribeCourses();
-      unsubscribeQuizzes();
-      unsubscribeResults();
+      unsubscribeFunctions.forEach(unsubscribe => unsubscribe());
     };
-  };
+  }, [currentUser]);
 
   const calculateCourseStats = (courses: Course[]) => {
     const approved = courses.filter(c => c.isApproved).length;
@@ -211,6 +230,42 @@ const FacultyDashboard: React.FC = () => {
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
             <p className="mt-4 text-gray-600">Loading dashboard...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Sidebar />
+        <Header />
+        <div className="ml-64 pt-16 flex items-center justify-center h-screen">
+          <div className="text-center p-6 bg-red-50 rounded-lg max-w-md">
+            <h3 className="text-lg font-medium text-red-800">Error Loading Dashboard</h3>
+            <p className="mt-2 text-red-600">{error}</p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="mt-4 px-4 py-2 bg-red-100 text-red-700 rounded-md hover:bg-red-200"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser || !userData) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Sidebar />
+        <Header />
+        <div className="ml-64 pt-16 flex items-center justify-center h-screen">
+          <div className="text-center">
+            <h3 className="text-lg font-medium text-gray-900">Authentication Required</h3>
+            <p className="mt-2 text-gray-600">Please log in to access the faculty dashboard</p>
           </div>
         </div>
       </div>
