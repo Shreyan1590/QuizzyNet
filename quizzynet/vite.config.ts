@@ -3,9 +3,22 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  define: {
-    // Fixes Firebase Vite compatibility
-    global: {},
-    'process.env': process.env
+  build: {
+    rollupOptions: {
+      external: [
+        '@mui/x-date-pickers',
+        '@mui/x-date-pickers/DateTimePicker',
+        '@mui/x-date-pickers/LocalizationProvider',
+        '@mui/x-date-pickers/AdapterDateFns'
+      ]
+    }
+  },
+  optimizeDeps: {
+    include: [
+      '@mui/x-date-pickers',
+      '@mui/material',
+      '@emotion/react',
+      '@emotion/styled'
+    ]
   }
 })
