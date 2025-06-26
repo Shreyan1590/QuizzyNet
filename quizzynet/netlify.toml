@@ -1,11 +1,21 @@
 [build]
+  command = "CI= npm run build"
   publish = "dist"
-  command = "npm run build"
+  functions = "functions"  # Only include if using Netlify functions
+
+[build.environment]
+  NODE_VERSION = "18"
+  NPM_FLAGS = "--legacy-peer-deps"  # Helps with dependency conflicts
+  CI = false  # Disables CI-specific behavior that may cause issues
 
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
 
-[build.environment]
-  NODE_VERSION = "18"
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    Referrer-Policy = "strict-origin-when-cross-origin"
