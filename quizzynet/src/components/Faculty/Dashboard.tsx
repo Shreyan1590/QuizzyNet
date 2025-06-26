@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, Users, BarChart3, Award, Plus } from 'lucide-react';
+import { BookOpen, Users, BarChart3, Award, Plus, Clock, CheckCircle, TrendingUp, Calendar, Target } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { Link } from 'react-router-dom';
+import { toast } from 'react-hot-toast';
 import Sidebar from '../Layout/Sidebar';
 import Header from '../Layout/Header';
 
@@ -16,7 +17,6 @@ interface Course {
   isApproved: boolean;
   enrolledStudents: number;
   createdAt: any;
-  facultyId: string;
 }
 
 interface Quiz {
@@ -29,16 +29,6 @@ interface Quiz {
   createdAt: any;
   attempts: number;
   averageScore: number;
-  facultyId: string;
-}
-
-interface QuizResult {
-  id: string;
-  quizTitle: string;
-  studentId: string;
-  studentEmail: string;
-  score: number;
-  completedAt: any;
 }
 
 interface StudentPerformance {
@@ -78,25 +68,10 @@ const FacultyDashboard: React.FC = () => {
     engagementScore: 0
   });
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-  console.log('Current User:', currentUser);
-  console.log('User Data:', userData);
-  
-  if (!currentUser || !userData) {
-    console.log('User not authenticated or data missing');
-    setLoading(false);
-    setError('User not authenticated');
-    return;
-  }
-
-    try {
+    if (currentUser && userData) {
       initializeRealTimeListeners();
-    } catch (err) {
-      console.error('Dashboard initialization error:', err);
-      setError('Failed to load dashboard data');
-      setLoading(false);
     }
   }, [currentUser, userData]);
 
@@ -109,22 +84,16 @@ const FacultyDashboard: React.FC = () => {
       where('facultyId', '==', currentUser.uid),
       orderBy('createdAt', 'desc')
     );
-    const unsubscribeCourses = onSnapshot(coursesQuery, 
-      (snapshot) => {
-        const courses = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-          enrolledStudents: doc.data().enrolledStudents || Math.floor(Math.random() * 50) + 10
-        })) as Course[];
-        
-        setRecentCourses(courses.slice(0, 5));
-        calculateCourseStats(courses);
-      },
-      (err) => {
-        console.error('Courses snapshot error:', err);
-        setError('Failed to load courses data');
-      }
-    );
+    const unsubscribeCourses = onSnapshot(coursesQuery, (snapshot) => {
+      const courses = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        enrolledStudents: Math.floor(Math.random() * 50) + 10 // Simulated enrollment
+      })) as Course[];
+      
+      setRecentCourses(courses.slice(0, 5));
+      calculateCourseStats(courses);
+    });
 
     // Real-time listener for faculty quizzes
     const quizzesQuery = query(
@@ -132,43 +101,27 @@ const FacultyDashboard: React.FC = () => {
       where('facultyId', '==', currentUser.uid),
       orderBy('createdAt', 'desc')
     );
-    const unsubscribeQuizzes = onSnapshot(quizzesQuery, 
-      (snapshot) => {
-        const quizzes = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-          attempts: doc.data().attempts || Math.floor(Math.random() * 100) + 5,
-          averageScore: doc.data().averageScore || Math.floor(Math.random() * 40) + 60
-        })) as Quiz[];
+    const unsubscribeQuizzes = onSnapshot(quizzesQuery, (snapshot) => {
+      const quizzes = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        attempts: Math.floor(Math.random() * 100) + 5,
+        averageScore: Math.floor(Math.random() * 40) + 60
+      })) as Quiz[];
 
-        setRecentQuizzes(quizzes.slice(0, 5));
-        calculateQuizStats(quizzes);
-      },
-      (err) => {
-        console.error('Quizzes snapshot error:', err);
-        setError('Failed to load quizzes data');
-      }
-    );
+      setRecentQuizzes(quizzes.slice(0, 5));
+      calculateQuizStats(quizzes);
+    });
 
     // Real-time listener for quiz results to calculate student performance
     const resultsQuery = query(
       collection(db, 'quizResults'),
-      where('facultyId', '==', currentUser.uid),
       orderBy('completedAt', 'desc')
     );
-    const unsubscribeResults = onSnapshot(resultsQuery, 
-      (snapshot) => {
-        const results = snapshot.docs.map((doc) => ({ 
-          id: doc.id, 
-          ...doc.data() 
-        })) as QuizResult[];
-        calculateStudentPerformance(results);
-      },
-      (err) => {
-        console.error('Results snapshot error:', err);
-        setError('Failed to load results data');
-      }
-    );
+    const unsubscribeResults = onSnapshot(resultsQuery, (snapshot) => {
+      const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      calculateStudentPerformance(results);
+    });
 
     setLoading(false);
 
@@ -183,7 +136,7 @@ const FacultyDashboard: React.FC = () => {
   const calculateCourseStats = (courses: Course[]) => {
     const approved = courses.filter(c => c.isApproved).length;
     const pending = courses.filter(c => !c.isApproved).length;
-    const totalStudents = courses.reduce((sum, course) => sum + (course.enrolledStudents || 0), 0);
+    const totalStudents = courses.reduce((sum, course) => sum + course.enrolledStudents, 0);
 
     setStats(prev => ({
       ...prev,
@@ -202,11 +155,9 @@ const FacultyDashboard: React.FC = () => {
     // Calculate weekly quizzes
     const oneWeekAgo = new Date();
     oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-    const weeklyQuizzes = quizzes.filter(q => {
-      if (!q.createdAt) return false;
-      const createdAt = q.createdAt.toDate ? q.createdAt.toDate() : new Date(q.createdAt);
-      return createdAt >= oneWeekAgo;
-    }).length;
+    const weeklyQuizzes = quizzes.filter(q => 
+      q.createdAt?.toDate && q.createdAt.toDate() >= oneWeekAgo
+    ).length;
 
     setStats(prev => ({
       ...prev,
@@ -223,23 +174,18 @@ const FacultyDashboard: React.FC = () => {
     }));
   };
 
-  const calculateStudentPerformance = (results: QuizResult[]) => {
-    if (!results || results.length === 0) {
-      setStudentPerformance({
-        totalStudents: 0,
-        activeStudents: 0,
-        averagePerformance: 0,
-        topPerformers: []
-      });
-      return;
-    }
+  const calculateStudentPerformance = (results: any[]) => {
+    // Filter results for faculty's quizzes
+    const facultyResults = results.filter(result => 
+      recentQuizzes.some(quiz => quiz.title === result.quizTitle)
+    );
 
-    const uniqueStudents = new Set(results.map(r => r.studentId)).size;
-    const scores = results.map(r => r.score || 0);
+    const uniqueStudents = new Set(facultyResults.map(r => r.studentId)).size;
+    const scores = facultyResults.map(r => r.score || 0);
     const averagePerformance = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
 
     // Generate top performers
-    const topPerformers = results
+    const topPerformers = facultyResults
       .sort((a, b) => (b.score || 0) - (a.score || 0))
       .slice(0, 5)
       .map(result => ({
@@ -271,28 +217,6 @@ const FacultyDashboard: React.FC = () => {
     );
   }
 
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <Sidebar />
-        <Header />
-        <div className="ml-64 pt-16 flex items-center justify-center h-screen">
-          <div className="text-center">
-            <div className="mx-auto h-12 w-12 text-red-500">⚠️</div>
-            <h3 className="mt-2 text-lg font-medium text-gray-900">Error loading dashboard</h3>
-            <p className="mt-1 text-sm text-gray-500">{error}</p>
-            <button
-              onClick={() => window.location.reload()}
-              className="mt-4 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
-            >
-              Try Again
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-gray-50">
       <Sidebar />
@@ -302,10 +226,8 @@ const FacultyDashboard: React.FC = () => {
         <div className="p-8">
           {/* Welcome Section */}
           <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900">Welcome back, {userData?.title || 'Prof.'} {userData?.lastName || userData?.firstName || 'User'}!</h1>
-            <p className="mt-2 text-gray-600">
-              Faculty ID: {userData?.facultyId || 'N/A'} • Department: {userData?.department || 'N/A'}
-            </p>
+            <h1 className="text-3xl font-bold text-gray-900">Welcome back, Prof. {userData?.firstName}!</h1>
+            <p className="mt-2 text-gray-600">Faculty ID: {userData?.facultyId} • Department: {userData?.department}</p>
           </div>
 
           {/* Key Metrics Grid */}
@@ -376,8 +298,8 @@ const FacultyDashboard: React.FC = () => {
                       <span className="text-sm font-bold text-green-600">{analytics.completionRate}%</span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div
-                        className="bg-green-600 h-2 rounded-full transition-all duration-300 completion-rate-bar"
+                      <div 
+                        className="bg-green-600 h-2 rounded-full transition-all duration-300"
                         style={{ width: `${analytics.completionRate}%` }}
                       />
                     </div>
@@ -389,8 +311,8 @@ const FacultyDashboard: React.FC = () => {
                       <span className="text-sm font-bold text-blue-600">{analytics.engagementScore}%</span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div
-                        className="bg-blue-600 h-2 rounded-full transition-all duration-300 engagement-score-bar"
+                      <div 
+                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
                         style={{ width: `${analytics.engagementScore}%` }}
                       />
                     </div>
@@ -523,9 +445,7 @@ const FacultyDashboard: React.FC = () => {
                         <span className="text-sm text-gray-500">Avg Score: {quiz.averageScore}%</span>
                         <span className="text-xs text-gray-400">
                           {quiz.scheduledAt ? 
-                            quiz.scheduledAt.toDate ? 
-                              new Date(quiz.scheduledAt.toDate()).toLocaleDateString() :
-                              new Date(quiz.scheduledAt).toLocaleDateString() :
+                            new Date(quiz.scheduledAt.toDate()).toLocaleDateString() :
                             'No schedule'
                           }
                         </span>
