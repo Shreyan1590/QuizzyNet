@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, Users, BarChart3, Award, Plus, Clock, CheckCircle, TrendingUp, Calendar, Target } from 'lucide-react';
+import { BookOpen, Users, BarChart3, Award, Plus } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { collection, query, where, getDocs, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, QuerySnapshot, DocumentData } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { Link } from 'react-router-dom';
-import { toast } from 'react-hot-toast';
 import Sidebar from '../Layout/Sidebar';
 import Header from '../Layout/Header';
 
@@ -84,8 +83,8 @@ const FacultyDashboard: React.FC = () => {
       where('facultyId', '==', currentUser.uid),
       orderBy('createdAt', 'desc')
     );
-    const unsubscribeCourses = onSnapshot(coursesQuery, (snapshot) => {
-      const courses = snapshot.docs.map(doc => ({
+    const unsubscribeCourses = onSnapshot(coursesQuery, (snapshot: QuerySnapshot<DocumentData>) => {
+      const courses = snapshot.docs.map((doc) => ({
         id: doc.id,
         ...doc.data(),
         enrolledStudents: Math.floor(Math.random() * 50) + 10 // Simulated enrollment
@@ -101,8 +100,8 @@ const FacultyDashboard: React.FC = () => {
       where('facultyId', '==', currentUser.uid),
       orderBy('createdAt', 'desc')
     );
-    const unsubscribeQuizzes = onSnapshot(quizzesQuery, (snapshot) => {
-      const quizzes = snapshot.docs.map(doc => ({
+    const unsubscribeQuizzes = onSnapshot(quizzesQuery, (snapshot: QuerySnapshot<DocumentData>) => {
+      const quizzes = snapshot.docs.map((doc) => ({
         id: doc.id,
         ...doc.data(),
         attempts: Math.floor(Math.random() * 100) + 5,
@@ -118,8 +117,8 @@ const FacultyDashboard: React.FC = () => {
       collection(db, 'quizResults'),
       orderBy('completedAt', 'desc')
     );
-    const unsubscribeResults = onSnapshot(resultsQuery, (snapshot) => {
-      const results = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const unsubscribeResults = onSnapshot(resultsQuery, (snapshot: QuerySnapshot<DocumentData>) => {
+      const results = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       calculateStudentPerformance(results);
     });
 
@@ -298,8 +297,8 @@ const FacultyDashboard: React.FC = () => {
                       <span className="text-sm font-bold text-green-600">{analytics.completionRate}%</span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div 
-                        className="bg-green-600 h-2 rounded-full transition-all duration-300"
+                      <div
+                        className="bg-green-600 h-2 rounded-full transition-all duration-300 completion-rate-bar"
                         style={{ width: `${analytics.completionRate}%` }}
                       />
                     </div>
@@ -311,8 +310,8 @@ const FacultyDashboard: React.FC = () => {
                       <span className="text-sm font-bold text-blue-600">{analytics.engagementScore}%</span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div 
-                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                      <div
+                        className="bg-blue-600 h-2 rounded-full transition-all duration-300 engagement-score-bar"
                         style={{ width: `${analytics.engagementScore}%` }}
                       />
                     </div>
