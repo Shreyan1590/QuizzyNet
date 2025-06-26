@@ -81,11 +81,15 @@ const FacultyDashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!currentUser || !userData) {
-      setLoading(false);
-      setError('User not authenticated');
-      return;
-    }
+  console.log('Current User:', currentUser);
+  console.log('User Data:', userData);
+  
+  if (!currentUser || !userData) {
+    console.log('User not authenticated or data missing');
+    setLoading(false);
+    setError('User not authenticated');
+    return;
+  }
 
     try {
       initializeRealTimeListeners();
