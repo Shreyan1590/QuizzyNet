@@ -6,7 +6,7 @@ import {
   signOut,
   onAuthStateChanged
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
+import { doc, setDoc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { toast } from 'react-hot-toast';
 
@@ -40,12 +40,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [userData, setUserData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  const refreshUserData = async () => {
-    if (!currentUser) return;
+  const refreshUserData = async (user: User | null) => {
+    if (!user) {
+      setUserRole(null);
+      setUserData(null);
+      return;
+    }
 
     try {
-      // Check student collection first
-      const studentDoc = await getDoc(doc(db, 'students', currentUser.uid));
+      // Check admin first (since it's a special case)
+      if (user.email === 'admin@lms.com') {
+        setUserRole('admin');
+        setUserData({
+          uid: user.uid,
+          email: user.email,
+          displayName: 'System Administrator',
+          role: 'admin'
+        });
+        return;
+      }
+
+      // Check student collection
+      const studentDoc = await getDoc(doc(db, 'students', user.uid));
       if (studentDoc.exists()) {
         const data = studentDoc.data();
         setUserRole('student');
@@ -54,42 +70,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       // Check faculty collection
-      const facultyDoc = await getDoc(doc(db, 'faculty', currentUser.uid));
+      const facultyDoc = await getDoc(doc(db, 'faculty', user.uid));
       if (facultyDoc.exists()) {
         const data = facultyDoc.data();
         setUserRole('faculty');
         setUserData(data);
         return;
       }
+
+      // If no matching role found
+      setUserRole(null);
+      setUserData(null);
+      await signOut(auth);
+      toast.error('No valid user account found');
     } catch (error) {
       console.error('Error refreshing user data:', error);
+      setUserRole(null);
+      setUserData(null);
     }
   };
 
   const login = async (email: string, password: string) => {
     try {
+      setLoading(true);
       const result = await signInWithEmailAndPassword(auth, email, password);
-      const userDoc = await getDoc(doc(db, 'students', result.user.uid));
-      
-      if (userDoc.exists()) {
-        const data = userDoc.data();
-        if (data.isBlocked) {
-          await signOut(auth);
-          toast.error('Your Account is Blocked. Contact Faculty/Admin to resolve this');
-          throw new Error('Account blocked');
-        }
-        setUserRole('student');
-        setUserData(data);
-      } else {
-        await signOut(auth);
-        toast.error('Student account not found');
-        throw new Error('Account not found');
-      }
-      
+      await refreshUserData(result.user);
       toast.success('Login successful!');
     } catch (error: any) {
       toast.error(error.message);
       throw error;
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -202,51 +213,62 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const adminLogin = async (username: string, password: string) => {
-    // Predefined admin credentials
-    if (username === 'admin' && password === 'admin123') {
-      const adminData = {
-        uid: 'admin-system',
-        email: 'admin@lms.com',
-        displayName: 'System Administrator',
-        role: 'admin'
-      };
-      setCurrentUser(adminData as User);
-      setUserRole('admin');
-      setUserData(adminData);
-      toast.success('Admin login successful!');
-    } else {
-      toast.error('Invalid admin credentials');
-      throw new Error('Invalid credentials');
+    try {
+      setLoading(true);
+      if (username === 'admin' && password === 'admin123') {
+        const adminUser = {
+          uid: 'admin-system',
+          email: 'admin@lms.com',
+          displayName: 'System Administrator'
+        } as User;
+        
+        setCurrentUser(adminUser);
+        setUserRole('admin');
+        setUserData({
+          ...adminUser,
+          role: 'admin'
+        });
+        toast.success('Admin login successful!');
+      } else {
+        throw new Error('Invalid admin credentials');
+      }
+    } catch (error: any) {
+      toast.error(error.message);
+      throw error;
+    } finally {
+      setLoading(false);
     }
   };
 
   const logout = async () => {
     try {
-      if (userRole === 'admin') {
-        setCurrentUser(null);
-        setUserRole(null);
-        setUserData(null);
-      } else {
+      setLoading(true);
+      if (userRole !== 'admin') {
         await signOut(auth);
       }
+      setCurrentUser(null);
+      setUserRole(null);
+      setUserData(null);
       toast.success('Logged out successfully');
     } catch (error: any) {
       toast.error(error.message);
       throw error;
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
+      try {
+        setLoading(true);
         setCurrentUser(user);
-        await refreshUserData();
-      } else {
-        setCurrentUser(null);
-        setUserRole(null);
-        setUserData(null);
+        await refreshUserData(user);
+      } catch (error) {
+        console.error('Auth state change error:', error);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return unsubscribe;
@@ -263,12 +285,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     facultyRegister,
     adminLogin,
     logout,
-    refreshUserData
+    refreshUserData: () => refreshUserData(currentUser)
   };
 
   return (
     <AuthContext.Provider value={value}>
-      {!loading && children}
+      {children}
     </AuthContext.Provider>
   );
 };
