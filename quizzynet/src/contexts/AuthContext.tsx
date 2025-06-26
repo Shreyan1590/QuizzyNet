@@ -6,7 +6,7 @@ import {
   signOut,
   onAuthStateChanged
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, setDoc, getDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { toast } from 'react-hot-toast';
 
@@ -21,6 +21,7 @@ interface AuthContextType {
   facultyRegister: (email: string, password: string, userData: any) => Promise<void>;
   adminLogin: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  refreshUserData: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -38,6 +39,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [userRole, setUserRole] = useState<'student' | 'faculty' | 'admin' | null>(null);
   const [userData, setUserData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+
+  const refreshUserData = async () => {
+    if (!currentUser) return;
+
+    try {
+      // Check student collection first
+      const studentDoc = await getDoc(doc(db, 'students', currentUser.uid));
+      if (studentDoc.exists()) {
+        const data = studentDoc.data();
+        setUserRole('student');
+        setUserData(data);
+        return;
+      }
+
+      // Check faculty collection
+      const facultyDoc = await getDoc(doc(db, 'faculty', currentUser.uid));
+      if (facultyDoc.exists()) {
+        const data = facultyDoc.data();
+        setUserRole('faculty');
+        setUserData(data);
+        return;
+      }
+    } catch (error) {
+      console.error('Error refreshing user data:', error);
+    }
+  };
 
   const login = async (email: string, password: string) => {
     try {
@@ -88,7 +115,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         createdAt: new Date(),
         isBlocked: false,
         enrolledCourses: [],
-        disciplinaryActions: []
+        completedCourses: [],
+        disciplinaryActions: [],
+        learningProgress: {
+          totalCourses: 0,
+          completedCourses: 0,
+          averageGrade: 0,
+          totalQuizzes: 0,
+          averageScore: 0
+        }
       });
       
       setUserRole('student');
@@ -107,6 +142,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       if (userDoc.exists()) {
         const data = userDoc.data();
+        if (!data.isApproved) {
+          await signOut(auth);
+          toast.error('Your faculty account is pending admin approval');
+          throw new Error('Account pending approval');
+        }
         setUserRole('faculty');
         setUserData(data);
       } else {
@@ -142,8 +182,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         email,
         role: 'faculty',
         createdAt: new Date(),
-        isApproved: false, // Requires admin approval
-        courses: []
+        isApproved: false,
+        courses: [],
+        analytics: {
+          totalCourses: 0,
+          totalStudents: 0,
+          totalQuizzes: 0,
+          averageStudentScore: 0
+        }
       });
       
       setUserRole('faculty');
@@ -160,8 +206,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (username === 'admin' && password === 'admin123') {
       const adminData = {
         uid: 'admin-system',
-        email: 'admin@eduportal.com',
-        displayName: 'System Administrator'
+        email: 'admin@lms.com',
+        displayName: 'System Administrator',
+        role: 'admin'
       };
       setCurrentUser(adminData as User);
       setUserRole('admin');
@@ -193,22 +240,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         setCurrentUser(user);
-        
-        // Check student collection first
-        const studentDoc = await getDoc(doc(db, 'students', user.uid));
-        if (studentDoc.exists()) {
-          const data = studentDoc.data();
-          setUserRole('student');
-          setUserData(data);
-        } else {
-          // Check faculty collection
-          const facultyDoc = await getDoc(doc(db, 'faculty', user.uid));
-          if (facultyDoc.exists()) {
-            const data = facultyDoc.data();
-            setUserRole('faculty');
-            setUserData(data);
-          }
-        }
+        await refreshUserData();
       } else {
         setCurrentUser(null);
         setUserRole(null);
@@ -230,7 +262,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     facultyLogin,
     facultyRegister,
     adminLogin,
-    logout
+    logout,
+    refreshUserData
   };
 
   return (

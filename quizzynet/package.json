@@ -20,11 +20,6 @@
     "date-fns": "^3.0.6",
     "clsx": "^2.0.0"
   },
-  "peerDependencies": {
-    "@mui/material": "^5.0.0",
-    "@emotion/react": "^11.0.0",
-    "@emotion/styled": "^11.0.0"
-  },
   "devDependencies": {
     "@eslint/js": "^9.9.1",
     "@types/react": "^18.3.5",

@@ -1,24 +1,10 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 
+// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  build: {
-    rollupOptions: {
-      external: [
-        '@mui/x-date-pickers',
-        '@mui/x-date-pickers/DateTimePicker',
-        '@mui/x-date-pickers/LocalizationProvider',
-        '@mui/x-date-pickers/AdapterDateFns'
-      ]
-    }
-  },
   optimizeDeps: {
-    include: [
-      '@mui/x-date-pickers',
-      '@mui/material',
-      '@emotion/react',
-      '@emotion/styled'
-    ]
-  }
-})
+    exclude: ['lucide-react'],
+  },
+});
