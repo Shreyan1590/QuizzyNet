@@ -6,20 +6,69 @@ import {
   signOut,
   onAuthStateChanged
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
+import { doc, setDoc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { toast } from 'react-hot-toast';
 
+type RoleType = 'student' | 'faculty' | 'admin' | null;
+
+interface StudentData {
+  uid: string;
+  email: string;
+  registrationNumber: string;
+  fullName: string;
+  isBlocked: boolean;
+  enrolledCourses: string[];
+  completedCourses: string[];
+  disciplinaryActions: string[];
+  learningProgress: {
+    totalCourses: number;
+    completedCourses: number;
+    averageGrade: number;
+    totalQuizzes: number;
+    averageScore: number;
+  };
+  createdAt: Date;
+  role: 'student';
+}
+
+interface FacultyData {
+  uid: string;
+  email: string;
+  facultyId: string;
+  fullName: string;
+  department: string;
+  isApproved: boolean;
+  courses: string[];
+  analytics: {
+    totalCourses: number;
+    totalStudents: number;
+    totalQuizzes: number;
+    averageStudentScore: number;
+  };
+  createdAt: Date;
+  role: 'faculty';
+}
+
+interface AdminData {
+  uid: string;
+  email: string;
+  fullName: string;
+  role: 'admin';
+}
+
+type UserData = StudentData | FacultyData | AdminData | null;
+
 interface AuthContextType {
   currentUser: User | null;
-  userRole: 'student' | 'faculty' | 'admin' | null;
-  userData: any;
+  userRole: RoleType;
+  userData: UserData;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, userData: any) => Promise<void>;
+  register: (email: string, password: string, userData: Omit<StudentData, 'uid' | 'email' | 'role' | 'createdAt' | keyof StudentData['learningProgress']>) => Promise<void>;
   facultyLogin: (email: string, password: string) => Promise<void>;
-  facultyRegister: (email: string, password: string, userData: any) => Promise<void>;
-  adminLogin: (username: string, password: string) => Promise<void>;
+  facultyRegister: (email: string, password: string, userData: Omit<FacultyData, 'uid' | 'email' | 'role' | 'createdAt' | keyof FacultyData['analytics']>) => Promise<void>;
+  adminLogin: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUserData: () => Promise<void>;
 }
@@ -34,68 +83,91 @@ export const useAuth = () => {
   return context;
 };
 
+const executeAuthOperation = async (
+  operation: () => Promise<void>,
+  successMessage: string
+) => {
+  try {
+    await operation();
+    toast.success(successMessage);
+  } catch (error: any) {
+    const message = error.message || 'Authentication failed';
+    toast.error(message);
+    throw error;
+  }
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [userRole, setUserRole] = useState<'student' | 'faculty' | 'admin' | null>(null);
-  const [userData, setUserData] = useState<any>(null);
+  const [userRole, setUserRole] = useState<RoleType>(null);
+  const [userData, setUserData] = useState<UserData>(null);
   const [loading, setLoading] = useState(true);
 
-  const refreshUserData = async () => {
-    if (!currentUser) return;
+  const refreshUserData = async (user: User | null = currentUser) => {
+    if (!user) {
+      setUserRole(null);
+      setUserData(null);
+      return;
+    }
 
     try {
-      // Check student collection first
-      const studentDoc = await getDoc(doc(db, 'students', currentUser.uid));
-      if (studentDoc.exists()) {
-        const data = studentDoc.data();
-        setUserRole('student');
-        setUserData(data);
+      // Check admin first
+      const adminDoc = await getDoc(doc(db, 'admins', user.uid));
+      if (adminDoc.exists()) {
+        setUserRole('admin');
+        setUserData({ ...adminDoc.data(), uid: user.uid, role: 'admin' } as AdminData);
         return;
       }
 
-      // Check faculty collection
-      const facultyDoc = await getDoc(doc(db, 'faculty', currentUser.uid));
+      // Check faculty
+      const facultyDoc = await getDoc(doc(db, 'faculty', user.uid));
       if (facultyDoc.exists()) {
         const data = facultyDoc.data();
+        if (!data.isApproved) {
+          await logout();
+          throw new Error('Faculty account pending approval');
+        }
         setUserRole('faculty');
-        setUserData(data);
+        setUserData({ ...data, uid: user.uid, role: 'faculty' } as FacultyData);
         return;
       }
-    } catch (error) {
-      console.error('Error refreshing user data:', error);
-    }
-  };
 
-  const login = async (email: string, password: string) => {
-    try {
-      const result = await signInWithEmailAndPassword(auth, email, password);
-      const userDoc = await getDoc(doc(db, 'students', result.user.uid));
-      
-      if (userDoc.exists()) {
-        const data = userDoc.data();
+      // Check student
+      const studentDoc = await getDoc(doc(db, 'students', user.uid));
+      if (studentDoc.exists()) {
+        const data = studentDoc.data();
         if (data.isBlocked) {
-          await signOut(auth);
-          toast.error('Your Account is Blocked. Contact Faculty/Admin to resolve this');
+          await logout();
           throw new Error('Account blocked');
         }
         setUserRole('student');
-        setUserData(data);
-      } else {
-        await signOut(auth);
-        toast.error('Student account not found');
-        throw new Error('Account not found');
+        setUserData({ ...data, uid: user.uid, role: 'student' } as StudentData);
+        return;
       }
-      
-      toast.success('Login successful!');
+
+      // No matching account found
+      await logout();
+      throw new Error('User account not found');
     } catch (error: any) {
-      toast.error(error.message);
+      console.error('Error refreshing user data:', error);
       throw error;
     }
   };
 
-  const register = async (email: string, password: string, userData: any) => {
-    try {
-      // Check if registration number already exists
+  const login = async (email: string, password: string) => {
+    return executeAuthOperation(async () => {
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      await refreshUserData(userCredential.user);
+    }, 'Login successful!');
+  };
+
+  const register = async (
+    email: string, 
+    password: string, 
+    userData: Omit<StudentData, 'uid' | 'email' | 'role' | 'createdAt' | keyof StudentData['learningProgress']>
+  ) => {
+    return executeAuthOperation(async () => {
+      // Check if registration number exists
       const regQuery = query(
         collection(db, 'students'),
         where('registrationNumber', '==', userData.registrationNumber)
@@ -103,13 +175,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const regSnapshot = await getDocs(regQuery);
       
       if (!regSnapshot.empty) {
-        toast.error('Registration number already exists');
         throw new Error('Registration number already exists');
       }
 
-      const result = await createUserWithEmailAndPassword(auth, email, password);
-      await setDoc(doc(db, 'students', result.user.uid), {
-        ...userData,
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      
+      const newStudent: StudentData = {
+        uid: userCredential.user.uid,
         email,
         role: 'student',
         createdAt: new Date(),
@@ -123,48 +195,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           averageGrade: 0,
           totalQuizzes: 0,
           averageScore: 0
-        }
-      });
-      
-      setUserRole('student');
-      setUserData({ ...userData, email, role: 'student' });
-      toast.success('Student registration successful!');
-    } catch (error: any) {
-      toast.error(error.message);
-      throw error;
-    }
+        },
+        ...userData
+      };
+
+      await setDoc(doc(db, 'students', userCredential.user.uid), newStudent);
+      await refreshUserData(userCredential.user);
+    }, 'Student registration successful!');
   };
 
   const facultyLogin = async (email: string, password: string) => {
-    try {
-      const result = await signInWithEmailAndPassword(auth, email, password);
-      const userDoc = await getDoc(doc(db, 'faculty', result.user.uid));
-      
-      if (userDoc.exists()) {
-        const data = userDoc.data();
-        if (!data.isApproved) {
-          await signOut(auth);
-          toast.error('Your faculty account is pending admin approval');
-          throw new Error('Account pending approval');
-        }
-        setUserRole('faculty');
-        setUserData(data);
-      } else {
-        await signOut(auth);
-        toast.error('Faculty account not found');
-        throw new Error('Faculty account not found');
-      }
-      
-      toast.success('Faculty login successful!');
-    } catch (error: any) {
-      toast.error(error.message);
-      throw error;
-    }
+    return executeAuthOperation(async () => {
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      await refreshUserData(userCredential.user);
+    }, 'Faculty login successful!');
   };
 
-  const facultyRegister = async (email: string, password: string, userData: any) => {
-    try {
-      // Check if faculty ID already exists
+  const facultyRegister = async (
+    email: string, 
+    password: string, 
+    userData: Omit<FacultyData, 'uid' | 'email' | 'role' | 'createdAt' | keyof FacultyData['analytics']>
+  ) => {
+    return executeAuthOperation(async () => {
+      // Check if faculty ID exists
       const facultyQuery = query(
         collection(db, 'faculty'),
         where('facultyId', '==', userData.facultyId)
@@ -172,13 +225,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const facultySnapshot = await getDocs(facultyQuery);
       
       if (!facultySnapshot.empty) {
-        toast.error('Faculty ID already exists');
         throw new Error('Faculty ID already exists');
       }
 
-      const result = await createUserWithEmailAndPassword(auth, email, password);
-      await setDoc(doc(db, 'faculty', result.user.uid), {
-        ...userData,
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      
+      const newFaculty: FacultyData = {
+        uid: userCredential.user.uid,
         email,
         role: 'faculty',
         createdAt: new Date(),
@@ -189,16 +242,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           totalStudents: 0,
           totalQuizzes: 0,
           averageStudentScore: 0
-        }
-      });
-      
-      setUserRole('faculty');
-      setUserData({ ...userData, email, role: 'faculty' });
-      toast.success('Faculty registration successful! Awaiting admin approval.');
-    } catch (error: any) {
-      toast.error(error.message);
-      throw error;
-    }
+        },
+        ...userData
+      };
+
+      await setDoc(doc(db, 'faculty', userCredential.user.uid), newFaculty);
+      await refreshUserData(userCredential.user);
+    }, 'Faculty registration successful! Awaiting admin approval.');
   };
 
   const adminLogin = async (username: string, password: string) => {
@@ -221,32 +271,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
-    try {
-      if (userRole === 'admin') {
-        setCurrentUser(null);
-        setUserRole(null);
-        setUserData(null);
-      } else {
-        await signOut(auth);
-      }
-      toast.success('Logged out successfully');
-    } catch (error: any) {
-      toast.error(error.message);
-      throw error;
-    }
+    return executeAuthOperation(async () => {
+      await signOut(auth);
+      setCurrentUser(null);
+      setUserRole(null);
+      setUserData(null);
+    }, 'Logged out successfully');
   };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
+      try {
         setCurrentUser(user);
-        await refreshUserData();
-      } else {
-        setCurrentUser(null);
-        setUserRole(null);
-        setUserData(null);
+        await refreshUserData(user);
+      } catch (error) {
+        console.error('Auth state change error:', error);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return unsubscribe;
