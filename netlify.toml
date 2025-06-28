@@ -3,8 +3,12 @@
   publish = "dist"
   environment = { NODE_VERSION = "18" }
 
+[build.environment]
+  NODE_VERSION = "18"
+
 [context.production.environment]
-  VITE_API_URL = "https://your-api-url.com"
+  VITE_SUPABASE_URL = "your-supabase-url"
+  VITE_SUPABASE_ANON_KEY = "your-anon-key"
 
 # For single-page applications (React)
 [[redirects]]
