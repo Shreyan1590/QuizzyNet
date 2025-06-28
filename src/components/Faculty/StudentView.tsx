@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Search, User, BookOpen, Award, AlertTriangle, Calendar, Mail, Phone } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../lib/supabase';
 import { toast } from 'react-hot-toast';
 import Sidebar from '../Layout/Sidebar';

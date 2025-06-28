@@ -1,10 +1,22 @@
 import { createClient } from '@supabase/supabase-js'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-// Create and export the Supabase client
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+export const supabase = createClient(supabaseUrl, supabaseKey, {
+  auth: {
+    persistSession: false
+  }
+})
 
-// If you need to reference the database explicitly
-export const db = supabase
+// Helper functions
+export const fetchCollection = async (table: string) => {
+  const { data, error } = await supabase.from(table).select('*')
+  if (error) throw error
+  return data
+}
+
+export const updateRecord = async (table: string, id: string, updates: object) => {
+  const { error } = await supabase.from(table).update(updates).eq('id', id)
+  if (error) throw error
+}

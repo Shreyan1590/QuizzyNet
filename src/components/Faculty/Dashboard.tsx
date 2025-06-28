@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BookOpen, Users, BarChart3, Award, Plus, Clock, CheckCircle, TrendingUp, Calendar, Target } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { collection, query, where, getDocs, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../../lib/supabase';
 import { Link } from 'react-router-dom';
 import { toast } from 'react-hot-toast';

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BookOpen, Clock, User, Calendar, Award } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { supabase } from '../../lib/supabase'
 import { db } from '../../lib/supabase';
 import { toast } from 'react-hot-toast';
 import Sidebar from '../Layout/Sidebar';
@@ -18,6 +18,7 @@ interface Course {
   isApproved: boolean;
   createdAt: any;
 }
+
 
 const StudentCourses: React.FC = () => {
   const { currentUser, userData } = useAuth();

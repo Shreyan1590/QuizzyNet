@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { User, Mail, Phone, Calendar, Edit, Save, X, Lock } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { doc, updateDoc } from 'firebase/firestore';
-import { updatePassword } from 'firebase/auth';
+import { doc, updateDoc } from 'supabase';
+import { supabase } from '../../lib/supabase'
+const { error } = await supabase.auth.updateUser({ password: 'new-password' })
 import { db } from '../../lib/supabase';
 import { toast } from 'react-hot-toast';
 import Sidebar from '../Layout/Sidebar';
@@ -74,17 +75,26 @@ const StudentProfile: React.FC = () => {
     }
 
     setLoading(true);
-    try {
-      await updatePassword(currentUser, passwordData.newPassword);
-      toast.success('Password changed successfully!');
-      setIsChangingPassword(false);
-      setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
-    } catch (error) {
-      console.error('Error changing password:', error);
-      toast.error('Error changing password');
-    } finally {
-      setLoading(false);
-    }
+  try {
+    const { error } = await supabase.auth.updateUser({
+      password: passwordData.newPassword
+    });
+
+    if (error) throw error;
+
+    toast.success('Password changed successfully!');
+    setIsChangingPassword(false);
+    setPasswordData({ 
+      currentPassword: '', 
+      newPassword: '', 
+      confirmPassword: '' 
+    });
+  } catch (error) {
+    console.error('Error changing password:', error);
+    toast.error(error.message || 'Error changing password');
+  } finally {
+    setLoading(false);
+  }
   };
 
   const handleCancel = () => {

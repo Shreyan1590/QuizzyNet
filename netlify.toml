@@ -1,17 +1,31 @@
 [build]
-  command = "npm run build"
+  command = "npm install && npm run build"
   publish = "dist"
-  environment = { NODE_VERSION = "18" }
+  functions = "functions"  # Only include if using Netlify Functions
 
 [build.environment]
   NODE_VERSION = "18"
+  NPM_FLAGS = "--legacy-peer-deps"  # Helps with dependency conflicts
 
 [context.production.environment]
-  VITE_SUPABASE_URL = "your-supabase-url"
-  VITE_SUPABASE_ANON_KEY = "your-anon-key"
+  VITE_SUPABASE_URL = "your-supabase-url"  # Replace with yours
+  VITE_SUPABASE_ANON_KEY = "your-anon-key"  # Replace with yours
+  GENERATE_SOURCEMAP = "false"  # Disable for production
+
+[context.deploy-preview.environment]
+  VITE_SUPABASE_URL = "preview-supabase-url"  # Optional for PR previews
+  VITE_SUPABASE_ANON_KEY = "preview-anon-key"
 
 # For single-page applications (React)
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Cache configuration (optional but recommended)
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
