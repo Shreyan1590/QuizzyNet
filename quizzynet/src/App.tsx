@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -29,25 +29,46 @@ import AdminCourses from './components/Admin/Courses';
 import AdminQuizzes from './components/Admin/Quizzes';
 import AdminDisciplinary from './components/Admin/Disciplinary';
 
-const ProtectedRoute: React.FC<{ children: React.ReactNode; requiredRole?: string }> = ({ 
-  children, 
-  requiredRole 
-}) => {
-  const { currentUser, userRole } = useAuth();
+const ProtectedRoute: React.FC<{ 
+  children: React.ReactNode; 
+  requiredRole?: 'student' | 'faculty' | 'admin' 
+}> = ({ children, requiredRole }) => {
+  const { currentUser, userRole, loading } = useAuth();
+  
+  if (loading) {
+    return <div>Loading authentication...</div>;
+  }
   
   if (!currentUser) {
     return <Navigate to="/login" replace />;
   }
   
   if (requiredRole && userRole !== requiredRole) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/unauthorized" replace />;
   }
   
   return <>{children}</>;
 };
 
+const Unauthorized = () => (
+  <div className="flex items-center justify-center h-screen">
+    <div className="text-center">
+      <h1 className="text-2xl font-bold mb-4">401 - Unauthorized</h1>
+      <p>You don't have permission to access this page.</p>
+    </div>
+  </div>
+);
+
 const AppRoutes: React.FC = () => {
-  const { currentUser, userRole } = useAuth();
+  const { currentUser, userRole, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
 
   if (!currentUser) {
     return (
@@ -69,6 +90,9 @@ const AppRoutes: React.FC = () => {
           <Navigate to="/student" replace />
         } 
       />
+      
+      {/* Common Routes */}
+      <Route path="/unauthorized" element={<Unauthorized />} />
       
       {/* Student Routes */}
       <Route 
@@ -226,6 +250,35 @@ const AppRoutes: React.FC = () => {
 };
 
 function App() {
+  const [supabaseReady, setSupabaseReady] = useState(false);
+
+  useEffect(() => {
+    // Initialize Supabase client
+    const initializeSupabase = async () => {
+      try {
+        // Check if we have a valid session
+        const { data: { session } } = await supabase.auth.getSession();
+        setSupabaseReady(true);
+      } catch (error) {
+        console.error('Supabase initialization error:', error);
+        setSupabaseReady(true); // Still render app to show error state
+      }
+    };
+
+    initializeSupabase();
+  }, []);
+
+  if (!supabaseReady) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold mb-4">Initializing Application</h1>
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mx-auto"></div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <AuthProvider>
       <Router>
