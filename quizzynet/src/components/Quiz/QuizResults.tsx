@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { CheckCircle, XCircle, Clock, Award, ArrowLeft, RotateCcw } from 'lucide-react';
 import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
+import { db } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 
 interface QuizResult {

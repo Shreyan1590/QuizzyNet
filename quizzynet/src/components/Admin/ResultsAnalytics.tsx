@@ -1,19 +1,26 @@
-import React, { useState, useEffect } from 'react';
-import { BarChart3, TrendingUp, Users, Award, Download, Filter, Calendar } from 'lucide-react';
-import { collection, getDocs, query, orderBy, where } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
-import { toast } from 'react-hot-toast';
+import React, { useState, useEffect } from "react";
+import {
+  BarChart3,
+  TrendingUp,
+  Users,
+  Award,
+  Download,
+  Filter,
+  Calendar,
+} from "lucide-react";
+import { supabase } from "../../lib/supabase"; // Adjust the import path as needed
+import { toast } from "react-hot-toast";
 
 interface QuizResult {
   id: string;
-  studentId: string;
-  studentEmail: string;
-  quizTitle: string;
+  student_id: string;
+  student_email: string;
+  quiz_title: string;
   score: number;
-  totalQuestions: number;
-  correctAnswers: number;
-  timeSpent: number;
-  completedAt: any;
+  total_questions: number;
+  correct_answers: number;
+  time_spent: number;
+  completed_at: string;
   status: string;
 }
 
@@ -21,9 +28,9 @@ const ResultsAnalytics: React.FC = () => {
   const [results, setResults] = useState<QuizResult[]>([]);
   const [filteredResults, setFilteredResults] = useState<QuizResult[]>([]);
   const [loading, setLoading] = useState(true);
-  const [dateFilter, setDateFilter] = useState('all');
-  const [quizFilter, setQuizFilter] = useState('all');
-  const [scoreFilter, setScoreFilter] = useState('all');
+  const [dateFilter, setDateFilter] = useState("all");
+  const [quizFilter, setQuizFilter] = useState("all");
+  const [scoreFilter, setScoreFilter] = useState("all");
   const [analytics, setAnalytics] = useState({
     totalAttempts: 0,
     averageScore: 0,
@@ -32,10 +39,10 @@ const ResultsAnalytics: React.FC = () => {
     topPerformers: [] as any[],
     scoreDistribution: {
       excellent: 0, // 90-100%
-      good: 0,      // 70-89%
-      average: 0,   // 50-69%
-      poor: 0       // 0-49%
-    }
+      good: 0, // 70-89%
+      average: 0, // 50-69%
+      poor: 0, // 0-49%
+    },
   });
 
   useEffect(() => {
@@ -49,20 +56,17 @@ const ResultsAnalytics: React.FC = () => {
 
   const fetchResults = async () => {
     try {
-      const resultsQuery = query(
-        collection(db, 'quizResults'),
-        orderBy('completedAt', 'desc')
-      );
-      const snapshot = await getDocs(resultsQuery);
-      const resultsData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as QuizResult[];
-      
-      setResults(resultsData);
+      const { data, error } = await supabase
+        .from("quiz_results")
+        .select("*")
+        .order("completed_at", { ascending: false });
+
+      if (error) throw error;
+
+      setResults(data || []);
     } catch (error) {
-      console.error('Error fetching results:', error);
-      toast.error('Error loading results');
+      console.error("Error fetching results:", error);
+      toast.error("Error loading results");
     } finally {
       setLoading(false);
     }
@@ -72,46 +76,51 @@ const ResultsAnalytics: React.FC = () => {
     let filtered = [...results];
 
     // Date filter
-    if (dateFilter !== 'all') {
+    if (dateFilter !== "all") {
       const now = new Date();
       const filterDate = new Date();
-      
+
       switch (dateFilter) {
-        case 'today':
+        case "today":
           filterDate.setHours(0, 0, 0, 0);
           break;
-        case 'week':
+        case "week":
           filterDate.setDate(now.getDate() - 7);
           break;
-        case 'month':
+        case "month":
           filterDate.setMonth(now.getMonth() - 1);
           break;
       }
-      
-      filtered = filtered.filter(result => 
-        result.completedAt?.toDate() >= filterDate
-      );
+
+      filtered = filtered.filter((result) => {
+        const resultDate = new Date(result.completed_at);
+        return resultDate >= filterDate;
+      });
     }
 
     // Quiz filter
-    if (quizFilter !== 'all') {
-      filtered = filtered.filter(result => result.quizTitle === quizFilter);
+    if (quizFilter !== "all") {
+      filtered = filtered.filter((result) => result.quiz_title === quizFilter);
     }
 
     // Score filter
-    if (scoreFilter !== 'all') {
+    if (scoreFilter !== "all") {
       switch (scoreFilter) {
-        case 'excellent':
-          filtered = filtered.filter(result => result.score >= 90);
+        case "excellent":
+          filtered = filtered.filter((result) => result.score >= 90);
           break;
-        case 'good':
-          filtered = filtered.filter(result => result.score >= 70 && result.score < 90);
+        case "good":
+          filtered = filtered.filter(
+            (result) => result.score >= 70 && result.score < 90
+          );
           break;
-        case 'average':
-          filtered = filtered.filter(result => result.score >= 50 && result.score < 70);
+        case "average":
+          filtered = filtered.filter(
+            (result) => result.score >= 50 && result.score < 70
+          );
           break;
-        case 'poor':
-          filtered = filtered.filter(result => result.score < 50);
+        case "poor":
+          filtered = filtered.filter((result) => result.score < 50);
           break;
       }
     }
@@ -121,7 +130,7 @@ const ResultsAnalytics: React.FC = () => {
 
   const calculateAnalytics = () => {
     const data = filteredResults;
-    
+
     if (data.length === 0) {
       setAnalytics({
         totalAttempts: 0,
@@ -129,32 +138,42 @@ const ResultsAnalytics: React.FC = () => {
         passRate: 0,
         averageTime: 0,
         topPerformers: [],
-        scoreDistribution: { excellent: 0, good: 0, average: 0, poor: 0 }
+        scoreDistribution: { excellent: 0, good: 0, average: 0, poor: 0 },
       });
       return;
     }
 
     const totalAttempts = data.length;
-    const averageScore = Math.round(data.reduce((sum, result) => sum + result.score, 0) / totalAttempts);
-    const passRate = Math.round((data.filter(result => result.score >= 60).length / totalAttempts) * 100);
-    const averageTime = Math.round(data.reduce((sum, result) => sum + (result.timeSpent || 0), 0) / totalAttempts / 60); // in minutes
+    const averageScore = Math.round(
+      data.reduce((sum, result) => sum + result.score, 0) / totalAttempts
+    );
+    const passRate = Math.round(
+      (data.filter((result) => result.score >= 60).length / totalAttempts) * 100
+    );
+    const averageTime = Math.round(
+      data.reduce((sum, result) => sum + (result.time_spent || 0), 0) /
+        totalAttempts /
+        60
+    ); // in minutes
 
     // Score distribution
     const scoreDistribution = {
-      excellent: data.filter(result => result.score >= 90).length,
-      good: data.filter(result => result.score >= 70 && result.score < 90).length,
-      average: data.filter(result => result.score >= 50 && result.score < 70).length,
-      poor: data.filter(result => result.score < 50).length
+      excellent: data.filter((result) => result.score >= 90).length,
+      good: data.filter((result) => result.score >= 70 && result.score < 90)
+        .length,
+      average: data.filter((result) => result.score >= 50 && result.score < 70)
+        .length,
+      poor: data.filter((result) => result.score < 50).length,
     };
 
     // Top performers
     const topPerformers = data
       .sort((a, b) => b.score - a.score)
       .slice(0, 5)
-      .map(result => ({
-        email: result.studentEmail,
+      .map((result) => ({
+        email: result.student_email,
         score: result.score,
-        quiz: result.quizTitle
+        quiz: result.quiz_title,
       }));
 
     setAnalytics({
@@ -163,37 +182,80 @@ const ResultsAnalytics: React.FC = () => {
       passRate,
       averageTime,
       topPerformers,
-      scoreDistribution
+      scoreDistribution,
     });
   };
 
+  const fetchResults = async () => {
+    const { data, error } = await supabase
+      .from("quiz_results")
+      .select("*")
+      .order("completed_at", { ascending: false })
+      .range(0, 99); // First 100 records
+  };
+
+  useEffect(() => {
+    const subscription = supabase
+      .channel("quiz_results_changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "quiz_results",
+        },
+        () => fetchResults()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
+  }, []);
+
+  const { data, error } = await supabase
+    .from("quiz_results")
+    .select("id, student_email, quiz_title, score, completed_at")
+    .order("completed_at", { ascending: false });
+
   const exportResults = () => {
     const csvContent = [
-      ['Student Email', 'Quiz Title', 'Score', 'Total Questions', 'Correct Answers', 'Time Spent (min)', 'Completed At', 'Status'],
-      ...filteredResults.map(result => [
-        result.studentEmail,
-        result.quizTitle,
+      [
+        "Student Email",
+        "Quiz Title",
+        "Score",
+        "Total Questions",
+        "Correct Answers",
+        "Time Spent (min)",
+        "Completed At",
+        "Status",
+      ],
+      ...filteredResults.map((result) => [
+        result.student_email,
+        result.quiz_title,
         result.score,
-        result.totalQuestions,
-        result.correctAnswers,
-        Math.round((result.timeSpent || 0) / 60),
-        result.completedAt?.toDate()?.toLocaleString() || 'N/A',
-        result.status
-      ])
-    ].map(row => row.join(',')).join('\n');
+        result.total_questions,
+        result.correct_answers,
+        Math.round((result.time_spent || 0) / 60),
+        new Date(result.completed_at).toLocaleString(),
+        result.status,
+      ]),
+    ]
+      .map((row) => row.join(","))
+      .join("\n");
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const blob = new Blob([csvContent], { type: "text/csv" });
     const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
-    a.download = `quiz_results_${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `quiz_results_${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
-    toast.success('Results exported successfully');
+    toast.success("Results exported successfully");
   };
 
   const getUniqueQuizzes = () => {
-    return [...new Set(results.map(result => result.quizTitle))];
+    return [...new Set(results.map((result) => result.quiz_title))];
   };
 
   if (loading) {
@@ -213,8 +275,12 @@ const ResultsAnalytics: React.FC = () => {
         <div className="mb-8">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Results Analytics</h1>
-              <p className="mt-2 text-gray-600">Comprehensive quiz performance analysis</p>
+              <h1 className="text-3xl font-bold text-gray-900">
+                Results Analytics
+              </h1>
+              <p className="mt-2 text-gray-600">
+                Comprehensive quiz performance analysis
+              </p>
             </div>
             <button
               onClick={exportResults}
@@ -257,8 +323,10 @@ const ResultsAnalytics: React.FC = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="all">All Quizzes</option>
-                {getUniqueQuizzes().map(quiz => (
-                  <option key={quiz} value={quiz}>{quiz}</option>
+                {getUniqueQuizzes().map((quiz) => (
+                  <option key={quiz} value={quiz}>
+                    {quiz}
+                  </option>
                 ))}
               </select>
             </div>
@@ -297,8 +365,12 @@ const ResultsAnalytics: React.FC = () => {
                 <Users className="w-6 h-6 text-blue-600" />
               </div>
               <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Total Attempts</p>
-                <p className="text-2xl font-bold text-gray-900">{analytics.totalAttempts}</p>
+                <p className="text-sm font-medium text-gray-500">
+                  Total Attempts
+                </p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {analytics.totalAttempts}
+                </p>
               </div>
             </div>
           </div>
@@ -309,8 +381,12 @@ const ResultsAnalytics: React.FC = () => {
                 <TrendingUp className="w-6 h-6 text-green-600" />
               </div>
               <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Average Score</p>
-                <p className="text-2xl font-bold text-gray-900">{analytics.averageScore}%</p>
+                <p className="text-sm font-medium text-gray-500">
+                  Average Score
+                </p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {analytics.averageScore}%
+                </p>
               </div>
             </div>
           </div>
@@ -322,7 +398,9 @@ const ResultsAnalytics: React.FC = () => {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-500">Pass Rate</p>
-                <p className="text-2xl font-bold text-gray-900">{analytics.passRate}%</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {analytics.passRate}%
+                </p>
               </div>
             </div>
           </div>
@@ -334,7 +412,9 @@ const ResultsAnalytics: React.FC = () => {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-500">Avg Time</p>
-                <p className="text-2xl font-bold text-gray-900">{analytics.averageTime} min</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {analytics.averageTime} min
+                </p>
               </div>
             </div>
           </div>
@@ -343,57 +423,107 @@ const ResultsAnalytics: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
           {/* Score Distribution */}
           <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Score Distribution</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Score Distribution
+            </h3>
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-green-700">Excellent (90-100%)</span>
+                <span className="text-sm font-medium text-green-700">
+                  Excellent (90-100%)
+                </span>
                 <div className="flex items-center space-x-2">
                   <div className="w-32 bg-gray-200 rounded-full h-2">
-                    <div 
-                      className="bg-green-600 h-2 rounded-full" 
-                      style={{ width: `${analytics.totalAttempts > 0 ? (analytics.scoreDistribution.excellent / analytics.totalAttempts) * 100 : 0}%` }}
+                    <div
+                      className="bg-green-600 h-2 rounded-full"
+                      style={{
+                        width: `${
+                          analytics.totalAttempts > 0
+                            ? (analytics.scoreDistribution.excellent /
+                                analytics.totalAttempts) *
+                              100
+                            : 0
+                        }%`,
+                      }}
                     ></div>
                   </div>
-                  <span className="text-sm font-bold text-gray-900">{analytics.scoreDistribution.excellent}</span>
+                  <span className="text-sm font-bold text-gray-900">
+                    {analytics.scoreDistribution.excellent}
+                  </span>
                 </div>
               </div>
-              
+
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-blue-700">Good (70-89%)</span>
+                <span className="text-sm font-medium text-blue-700">
+                  Good (70-89%)
+                </span>
                 <div className="flex items-center space-x-2">
                   <div className="w-32 bg-gray-200 rounded-full h-2">
-                    <div 
-                      className="bg-blue-600 h-2 rounded-full" 
-                      style={{ width: `${analytics.totalAttempts > 0 ? (analytics.scoreDistribution.good / analytics.totalAttempts) * 100 : 0}%` }}
+                    <div
+                      className="bg-blue-600 h-2 rounded-full"
+                      style={{
+                        width: `${
+                          analytics.totalAttempts > 0
+                            ? (analytics.scoreDistribution.good /
+                                analytics.totalAttempts) *
+                              100
+                            : 0
+                        }%`,
+                      }}
                     ></div>
                   </div>
-                  <span className="text-sm font-bold text-gray-900">{analytics.scoreDistribution.good}</span>
+                  <span className="text-sm font-bold text-gray-900">
+                    {analytics.scoreDistribution.good}
+                  </span>
                 </div>
               </div>
-              
+
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-yellow-700">Average (50-69%)</span>
+                <span className="text-sm font-medium text-yellow-700">
+                  Average (50-69%)
+                </span>
                 <div className="flex items-center space-x-2">
                   <div className="w-32 bg-gray-200 rounded-full h-2">
-                    <div 
-                      className="bg-yellow-600 h-2 rounded-full" 
-                      style={{ width: `${analytics.totalAttempts > 0 ? (analytics.scoreDistribution.average / analytics.totalAttempts) * 100 : 0}%` }}
+                    <div
+                      className="bg-yellow-600 h-2 rounded-full"
+                      style={{
+                        width: `${
+                          analytics.totalAttempts > 0
+                            ? (analytics.scoreDistribution.average /
+                                analytics.totalAttempts) *
+                              100
+                            : 0
+                        }%`,
+                      }}
                     ></div>
                   </div>
-                  <span className="text-sm font-bold text-gray-900">{analytics.scoreDistribution.average}</span>
+                  <span className="text-sm font-bold text-gray-900">
+                    {analytics.scoreDistribution.average}
+                  </span>
                 </div>
               </div>
-              
+
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-red-700">Poor (0-49%)</span>
+                <span className="text-sm font-medium text-red-700">
+                  Poor (0-49%)
+                </span>
                 <div className="flex items-center space-x-2">
                   <div className="w-32 bg-gray-200 rounded-full h-2">
-                    <div 
-                      className="bg-red-600 h-2 rounded-full" 
-                      style={{ width: `${analytics.totalAttempts > 0 ? (analytics.scoreDistribution.poor / analytics.totalAttempts) * 100 : 0}%` }}
+                    <div
+                      className="bg-red-600 h-2 rounded-full"
+                      style={{
+                        width: `${
+                          analytics.totalAttempts > 0
+                            ? (analytics.scoreDistribution.poor /
+                                analytics.totalAttempts) *
+                              100
+                            : 0
+                        }%`,
+                      }}
                     ></div>
                   </div>
-                  <span className="text-sm font-bold text-gray-900">{analytics.scoreDistribution.poor}</span>
+                  <span className="text-sm font-bold text-gray-900">
+                    {analytics.scoreDistribution.poor}
+                  </span>
                 </div>
               </div>
             </div>
@@ -401,29 +531,45 @@ const ResultsAnalytics: React.FC = () => {
 
           {/* Top Performers */}
           <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Performers</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Top Performers
+            </h3>
             <div className="space-y-3">
               {analytics.topPerformers.map((performer, index) => (
-                <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div
+                  key={index}
+                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                >
                   <div className="flex items-center space-x-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${
-                      index === 0 ? 'bg-yellow-500' :
-                      index === 1 ? 'bg-gray-400' :
-                      index === 2 ? 'bg-orange-500' :
-                      'bg-blue-500'
-                    }`}>
+                    <div
+                      className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold ${
+                        index === 0
+                          ? "bg-yellow-500"
+                          : index === 1
+                          ? "bg-gray-400"
+                          : index === 2
+                          ? "bg-orange-500"
+                          : "bg-blue-500"
+                      }`}
+                    >
                       {index + 1}
                     </div>
                     <div>
-                      <p className="font-medium text-gray-900">{performer.email}</p>
+                      <p className="font-medium text-gray-900">
+                        {performer.email}
+                      </p>
                       <p className="text-sm text-gray-500">{performer.quiz}</p>
                     </div>
                   </div>
-                  <span className="font-bold text-green-600">{performer.score}%</span>
+                  <span className="font-bold text-green-600">
+                    {performer.score}%
+                  </span>
                 </div>
               ))}
               {analytics.topPerformers.length === 0 && (
-                <p className="text-gray-500 text-center py-4">No results available</p>
+                <p className="text-gray-500 text-center py-4">
+                  No results available
+                </p>
               )}
             </div>
           </div>
@@ -432,9 +578,11 @@ const ResultsAnalytics: React.FC = () => {
         {/* Recent Results Table */}
         <div className="bg-white rounded-lg shadow-md overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">Recent Results</h3>
+            <h3 className="text-lg font-semibold text-gray-900">
+              Recent Results
+            </h3>
           </div>
-          
+
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -469,12 +617,17 @@ const ResultsAnalytics: React.FC = () => {
                       {result.quizTitle}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                        result.score >= 90 ? 'bg-green-100 text-green-800' :
-                        result.score >= 70 ? 'bg-blue-100 text-blue-800' :
-                        result.score >= 50 ? 'bg-yellow-100 text-yellow-800' :
-                        'bg-red-100 text-red-800'
-                      }`}>
+                      <span
+                        className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                          result.score >= 90
+                            ? "bg-green-100 text-green-800"
+                            : result.score >= 70
+                            ? "bg-blue-100 text-blue-800"
+                            : result.score >= 50
+                            ? "bg-yellow-100 text-yellow-800"
+                            : "bg-red-100 text-red-800"
+                        }`}
+                      >
                         {result.score}%
                       </span>
                     </td>
@@ -482,13 +635,17 @@ const ResultsAnalytics: React.FC = () => {
                       {Math.round((result.timeSpent || 0) / 60)} min
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {result.completedAt?.toDate()?.toLocaleDateString() || 'N/A'}
+                      {result.completedAt?.toDate()?.toLocaleDateString() ||
+                        "N/A"}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                        result.status === 'completed' ? 'bg-green-100 text-green-800' :
-                        'bg-yellow-100 text-yellow-800'
-                      }`}>
+                      <span
+                        className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                          result.status === "completed"
+                            ? "bg-green-100 text-green-800"
+                            : "bg-yellow-100 text-yellow-800"
+                        }`}
+                      >
                         {result.status}
                       </span>
                     </td>

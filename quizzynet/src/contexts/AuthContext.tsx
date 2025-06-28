@@ -7,7 +7,7 @@ import {
   onAuthStateChanged
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
-import { auth, db } from '../lib/firebase';
+import { auth, db } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 
 type RoleType = 'student' | 'faculty' | 'admin' | null;

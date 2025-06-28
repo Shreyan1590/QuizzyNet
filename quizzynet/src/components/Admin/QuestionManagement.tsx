@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Upload, Download, FileText, AlertCircle, CheckCircle, Plus, Edit, Trash2 } from 'lucide-react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, onSnapshot, writeBatch } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL, uploadBytesResumable } from 'firebase/storage';
-import { db, storage } from '../../lib/firebase';
+import { supabase } from '../../lib/supabase'; // Adjust the import path as needed
 import { parseCSVFile, generateCSVTemplate, QuizQuestion } from '../../utils/csvParser';
 import { toast } from 'react-hot-toast';
 
@@ -25,33 +23,66 @@ const QuestionManagement: React.FC = () => {
   const [formData, setFormData] = useState({
     question: '',
     options: ['', '', '', ''],
-    correctAnswer: 0,
+    correct_answer: 0,
     explanation: '',
     difficulty: 'medium' as 'easy' | 'medium' | 'hard',
     category: ''
   });
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(
-      collection(db, 'questions'),
-      (snapshot) => {
-        const questionsData = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as QuizQuestion[];
-        
-        setQuestions(questionsData);
-        setLoading(false);
-      },
-      (error) => {
-        console.error('Error fetching questions:', error);
-        toast.error('Error loading questions');
-        setLoading(false);
-      }
-    );
-
-    return () => unsubscribe();
+    fetchQuestions();
   }, []);
+
+  const fetchQuestions = async () => {
+    try {
+      setLoading(true);
+      
+      // Initial fetch
+      const { data, error } = await supabase
+        .from('questions')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      setQuestions(data || []);
+      setLoading(false);
+
+      // Set up real-time subscription
+      const subscription = supabase
+        .channel('questions-changes')
+        .on(
+          'postgres_changes',
+          { 
+            event: '*',
+            schema: 'public',
+            table: 'questions'
+          },
+          (payload) => {
+            if (payload.eventType === 'INSERT') {
+              setQuestions(prev => [payload.new as QuizQuestion, ...prev]);
+            } else if (payload.eventType === 'UPDATE') {
+              setQuestions(prev => 
+                prev.map(question => 
+                  question.id === payload.new.id ? payload.new as QuizQuestion : question
+                )
+              );
+            } else if (payload.eventType === 'DELETE') {
+              setQuestions(prev => prev.filter(question => question.id !== payload.old.id));
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(subscription);
+      };
+    } catch (error) {
+      console.error('Error fetching questions:', error);
+      toast.error('Error loading questions');
+      setLoading(false);
+    }
+  };
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -80,12 +111,6 @@ const QuestionManagement: React.FC = () => {
   };
 
   const handleFileUpload = async (uploadedFile: File) => {
-    console.log('Starting file upload process...', {
-      fileName: uploadedFile.name,
-      fileSize: uploadedFile.size,
-      fileType: uploadedFile.type
-    });
-
     // Validate file type
     if (!uploadedFile.name.toLowerCase().endsWith('.csv')) {
       toast.error('Please upload a CSV file');
@@ -105,11 +130,8 @@ const QuestionManagement: React.FC = () => {
     setUploadProgress(0);
 
     try {
-      // First, parse the CSV file
-      console.log('Parsing CSV file...');
+      // Parse the CSV file
       const result = await parseCSVFile(uploadedFile);
-      console.log('CSV parsing result:', result);
-      
       setParsedData(result);
       setParsing(false);
 
@@ -119,32 +141,22 @@ const QuestionManagement: React.FC = () => {
         toast.success(`Successfully parsed ${result.validRows} questions`);
       }
 
-      // Upload file to Firebase Storage for backup
+      // Upload file to Supabase Storage for backup
       setUploading(true);
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const storageRef = ref(storage, `csv-uploads/${timestamp}_${uploadedFile.name}`);
+      const filePath = `csv-uploads/${timestamp}_${uploadedFile.name}`;
       
-      const uploadTask = uploadBytesResumable(storageRef, uploadedFile);
-      
-      uploadTask.on('state_changed',
-        (snapshot) => {
-          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          setUploadProgress(Math.round(progress));
-          console.log('Upload progress:', progress);
-        },
-        (error) => {
-          console.error('Upload error:', error);
-          toast.error('Error uploading file to storage');
-          setUploading(false);
-        },
-        async () => {
-          console.log('File upload completed');
-          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-          console.log('File available at:', downloadURL);
-          setUploading(false);
-          toast.success('File uploaded successfully');
-        }
-      );
+      const { error: uploadError } = await supabase.storage
+        .from('question-uploads')
+        .upload(filePath, uploadedFile, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (uploadError) throw uploadError;
+
+      setUploading(false);
+      toast.success('File uploaded successfully');
 
     } catch (error: any) {
       console.error('File processing error:', error);
@@ -180,24 +192,18 @@ const QuestionManagement: React.FC = () => {
     }
 
     try {
-      console.log('Saving questions to database...', parsedData.questions.length);
+      // Use Supabase's bulk insert
+      const { data, error } = await supabase
+        .from('questions')
+        .insert(parsedData.questions.map(q => ({
+          ...q,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })))
+        .select();
+
+      if (error) throw error;
       
-      // Use batch write for better performance
-      const batch = writeBatch(db);
-      const questionsRef = collection(db, 'questions');
-      
-      parsedData.questions.forEach((question) => {
-        const docRef = doc(questionsRef);
-        batch.set(docRef, {
-          ...question,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        });
-      });
-      
-      await batch.commit();
-      
-      console.log('Questions saved successfully');
       toast.success(`${parsedData.questions.length} questions saved successfully`);
       
       // Reset the form
@@ -221,14 +227,15 @@ const QuestionManagement: React.FC = () => {
     e.preventDefault();
     
     try {
-      const questionData = {
-        ...formData,
-        id: `q_${Date.now()}`,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-      
-      await addDoc(collection(db, 'questions'), questionData);
+      const { error } = await supabase
+        .from('questions')
+        .insert({
+          ...formData,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+
+      if (error) throw error;
       
       toast.success('Question created successfully');
       setShowCreateModal(false);
@@ -245,10 +252,15 @@ const QuestionManagement: React.FC = () => {
     if (!editingQuestion) return;
     
     try {
-      await updateDoc(doc(db, 'questions', editingQuestion.id), {
-        ...formData,
-        updatedAt: new Date()
-      });
+      const { error } = await supabase
+        .from('questions')
+        .update({
+          ...formData,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', editingQuestion.id);
+
+      if (error) throw error;
       
       toast.success('Question updated successfully');
       setEditingQuestion(null);
@@ -263,7 +275,13 @@ const QuestionManagement: React.FC = () => {
     if (!confirm('Are you sure you want to delete this question?')) return;
     
     try {
-      await deleteDoc(doc(db, 'questions', questionId));
+      const { error } = await supabase
+        .from('questions')
+        .delete()
+        .eq('id', questionId);
+
+      if (error) throw error;
+
       toast.success('Question deleted successfully');
     } catch (error) {
       console.error('Error deleting question:', error);
@@ -275,7 +293,7 @@ const QuestionManagement: React.FC = () => {
     setFormData({
       question: '',
       options: ['', '', '', ''],
-      correctAnswer: 0,
+      correct_answer: 0,
       explanation: '',
       difficulty: 'medium',
       category: ''
@@ -287,7 +305,7 @@ const QuestionManagement: React.FC = () => {
     setFormData({
       question: question.question,
       options: question.options,
-      correctAnswer: question.correctAnswer,
+      correct_answer: question.correct_answer,
       explanation: question.explanation || '',
       difficulty: question.difficulty || 'medium',
       category: question.category || ''

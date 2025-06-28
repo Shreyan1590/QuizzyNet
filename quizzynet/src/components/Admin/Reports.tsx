@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { FileText, Download, Calendar, Filter, TrendingUp, Users, Award } from 'lucide-react';
-import { collection, getDocs, query, orderBy, where } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
+import { supabase } from '../../lib/supabase'; // Adjust the import path as needed
 import { toast } from 'react-hot-toast';
 
 const Reports: React.FC = () => {
@@ -13,7 +12,7 @@ const Reports: React.FC = () => {
   const generateReport = async () => {
     setLoading(true);
     try {
-      // Fetch data based on report type and date range
+      // Calculate date range
       const endDate = new Date();
       const startDate = new Date();
       
@@ -32,19 +31,25 @@ const Reports: React.FC = () => {
           break;
       }
 
-      // Fetch quiz results
-      const resultsSnapshot = await getDocs(collection(db, 'quizResults'));
-      const results = resultsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // Fetch data from Supabase
+      const [
+        { data: resultsData, error: resultsError },
+        { data: studentsData, error: studentsError },
+        { data: quizzesData, error: quizzesError }
+      ] = await Promise.all([
+        supabase.from('quiz_results').select('*'),
+        supabase.from('users').select('*').eq('role', 'student'),
+        supabase.from('quizzes').select('*')
+      ]);
 
-      // Fetch students
-      const studentsSnapshot = await getDocs(collection(db, 'users'));
-      const students = studentsSnapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() }))
-        .filter(user => user.role === 'student');
+      if (resultsError || studentsError || quizzesError) {
+        throw resultsError || studentsError || quizzesError;
+      }
 
-      // Fetch quizzes
-      const quizzesSnapshot = await getDocs(collection(db, 'quizzes'));
-      const quizzes = quizzesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // Convert to arrays
+      const results = resultsData || [];
+      const students = studentsData || [];
+      const quizzes = quizzesData || [];
 
       // Generate report based on type
       let data = {};

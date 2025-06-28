@@ -3,7 +3,7 @@ import { User, Mail, Phone, Edit, Save, X, Lock, GraduationCap, Building } from 
 import { useAuth } from '../../contexts/AuthContext';
 import { doc, updateDoc } from 'firebase/firestore';
 import { updatePassword } from 'firebase/auth';
-import { db } from '../../lib/firebase';
+import { db } from '../../lib/supabase';
 import { toast } from 'react-hot-toast';
 import Sidebar from '../Layout/Sidebar';
 import Header from '../Layout/Header';

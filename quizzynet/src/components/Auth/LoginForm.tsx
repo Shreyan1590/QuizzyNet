@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Mail, Lock, Eye, EyeOff, User, Shield } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import { supabase } from '../../lib/supabase'; // Adjust the import path as needed
 
 const LoginForm: React.FC = () => {
   const [isStudentLogin, setIsStudentLogin] = useState(true);
@@ -12,21 +12,62 @@ const LoginForm: React.FC = () => {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-
-  const { login, adminLogin } = useAuth();
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setError(null);
 
     try {
       if (isStudentLogin) {
-        await login(formData.email, formData.password);
+        // Student login with email/password
+        const { data, error: signInError } = await supabase.auth.signInWithPassword({
+          email: formData.email,
+          password: formData.password,
+        });
+
+        if (signInError) {
+          throw signInError;
+        }
+
+        // Check if user has student role
+        const { data: userData } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', data.user?.id)
+          .single();
+
+        if (userData?.role !== 'student') {
+          await supabase.auth.signOut();
+          throw new Error('This account is not authorized as a student');
+        }
       } else {
-        await adminLogin(formData.username, formData.password);
+        // Admin login with username/password
+        const { data, error: signInError } = await supabase.auth.signInWithPassword({
+          email: `${formData.username}@admin.com`, // Or use username directly if configured
+          password: formData.password,
+        });
+
+        if (signInError) {
+          throw signInError;
+        }
+
+        // Check if user has admin role
+        const { data: userData } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', data.user?.id)
+          .single();
+
+        if (userData?.role !== 'admin') {
+          await supabase.auth.signOut();
+          throw new Error('This account is not authorized as an admin');
+        }
       }
     } catch (error) {
       console.error('Login error:', error);
+      setError(error instanceof Error ? error.message : 'Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -79,6 +120,12 @@ const LoginForm: React.FC = () => {
               Admin
             </button>
           </div>
+
+          {error && (
+            <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg text-sm">
+              {error}
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-6">
             {isStudentLogin ? (
@@ -135,6 +182,7 @@ const LoginForm: React.FC = () => {
                   className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   placeholder="Enter your password"
                   required
+                  minLength={6}
                 />
                 <button
                   type="button"
@@ -165,6 +213,11 @@ const LoginForm: React.FC = () => {
                 Don't have an account?{' '}
                 <Link to="/register" className="text-blue-600 hover:text-blue-700 font-medium">
                   Register here
+                </Link>
+              </p>
+              <p className="mt-2 text-sm text-gray-600">
+                <Link to="/forgot-password" className="text-blue-600 hover:text-blue-700">
+                  Forgot password?
                 </Link>
               </p>
             </div>

@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { Upload, Download, FileText, AlertCircle, CheckCircle } from 'lucide-react';
 import { parseCSVFile, generateCSVTemplate, QuizQuestion } from '../../utils/csvParser';
+import { supabase } from '../../lib/supabase';
 import { toast } from 'react-hot-toast';
 
 const QuizUpload: React.FC = () => {
   const [dragActive, setDragActive] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [parsing, setParsing] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [parsedData, setParsedData] = useState<{
     questions: QuizQuestion[];
     errors: string[];
@@ -46,11 +48,19 @@ const QuizUpload: React.FC = () => {
       return;
     }
 
+    // Validate file size (1GB limit)
+    const maxSize = 1024 * 1024 * 1024; // 1GB
+    if (uploadedFile.size > maxSize) {
+      toast.error('File size exceeds 1GB limit');
+      return;
+    }
+
     setFile(uploadedFile);
     setParsing(true);
     setParsedData(null);
 
     try {
+      // First parse the CSV file
       const result = await parseCSVFile(uploadedFile);
       setParsedData(result);
       
@@ -59,23 +69,44 @@ const QuizUpload: React.FC = () => {
       } else {
         toast.success(`Successfully parsed ${result.validRows} questions`);
       }
+
+      // Upload file to Supabase Storage for backup
+      setUploading(true);
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const filePath = `quiz-uploads/${timestamp}_${uploadedFile.name}`;
+      
+      const { error: uploadError } = await supabase.storage
+        .from('quiz-uploads')
+        .upload(filePath, uploadedFile, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (uploadError) throw uploadError;
+
+      toast.success('File uploaded successfully');
     } catch (error) {
-      toast.error(error.message);
+      toast.error(error.message || 'Error processing file');
     } finally {
       setParsing(false);
+      setUploading(false);
     }
   };
 
   const downloadTemplate = () => {
-    const template = generateCSVTemplate();
-    const blob = new Blob([template], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'quiz_template.csv';
-    a.click();
-    window.URL.revokeObjectURL(url);
-    toast.success('Template downloaded successfully');
+    try {
+      const template = generateCSVTemplate();
+      const blob = new Blob([template], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'quiz_template.csv';
+      a.click();
+      window.URL.revokeObjectURL(url);
+      toast.success('Template downloaded successfully');
+    } catch (error) {
+      toast.error('Error downloading template');
+    }
   };
 
   const handleSaveQuestions = async () => {
@@ -85,8 +116,20 @@ const QuizUpload: React.FC = () => {
     }
 
     try {
-      // Here you would save the questions to Firebase
-      // For now, we'll just show a success message
+      setUploading(true);
+      
+      // Use Supabase's bulk insert
+      const { data, error } = await supabase
+        .from('questions')
+        .insert(parsedData.questions.map(q => ({
+          ...q,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })))
+        .select();
+
+      if (error) throw error;
+      
       toast.success(`${parsedData.questions.length} questions saved successfully`);
       
       // Reset the form
@@ -94,6 +137,8 @@ const QuizUpload: React.FC = () => {
       setParsedData(null);
     } catch (error) {
       toast.error('Error saving questions');
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -139,7 +184,7 @@ const QuizUpload: React.FC = () => {
             accept=".csv"
             onChange={handleFileInput}
             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-            disabled={parsing}
+            disabled={parsing || uploading}
           />
           
           <div className="space-y-4">
@@ -157,11 +202,13 @@ const QuizUpload: React.FC = () => {
             </div>
           </div>
           
-          {parsing && (
+          {(parsing || uploading) && (
             <div className="absolute inset-0 bg-white bg-opacity-90 flex items-center justify-center">
               <div className="text-center">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-                <p className="text-sm text-gray-600">Parsing file...</p>
+                <p className="text-sm text-gray-600">
+                  {parsing ? 'Parsing file...' : 'Saving questions...'}
+                </p>
               </div>
             </div>
           )}
@@ -207,10 +254,13 @@ const QuizUpload: React.FC = () => {
             {parsedData.validRows > 0 && (
               <button
                 onClick={handleSaveQuestions}
-                className="w-full py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+                disabled={uploading}
+                className={`w-full py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium ${
+                  uploading ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
               >
                 <CheckCircle className="w-5 h-5 inline mr-2" />
-                Save {parsedData.validRows} Questions
+                {uploading ? 'Saving...' : `Save ${parsedData.validRows} Questions`}
               </button>
             )}
           </div>
@@ -243,7 +293,11 @@ const QuizUpload: React.FC = () => {
                   <div key={question.id} className="border border-gray-200 rounded-lg p-4">
                     <div className="flex justify-between items-start mb-2">
                       <h4 className="font-medium text-gray-900">Question {index + 1}</h4>
-                      <span className="text-xs bg-gray-100 px-2 py-1 rounded">
+                      <span className={`text-xs px-2 py-1 rounded ${
+                        question.difficulty === 'easy' ? 'bg-green-100 text-green-800' :
+                        question.difficulty === 'medium' ? 'bg-yellow-100 text-yellow-800' :
+                        'bg-red-100 text-red-800'
+                      }`}>
                         {question.difficulty}
                       </span>
                     </div>

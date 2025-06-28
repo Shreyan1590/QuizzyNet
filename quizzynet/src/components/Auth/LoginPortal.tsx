@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Mail, Lock, Eye, EyeOff, User, Shield, GraduationCap, Users } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import { supabase } from '../../lib/supabase';
 
 const LoginPortal: React.FC = () => {
   const [activePortal, setActivePortal] = useState<'student' | 'faculty' | 'admin'>('student');
@@ -13,38 +13,7 @@ const LoginPortal: React.FC = () => {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-
-  const { login, facultyLogin, adminLogin } = useAuth();
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-
-    try {
-      switch (activePortal) {
-        case 'student':
-          await login(formData.email, formData.password);
-          break;
-        case 'faculty':
-          await facultyLogin(formData.email, formData.password);
-          break;
-        case 'admin':
-          await adminLogin(formData.username, formData.password);
-          break;
-      }
-    } catch (error) {
-      console.error('Login error:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
-  };
+  const [error, setError] = useState<string | null>(null);
 
   const portals = [
     {
@@ -69,6 +38,62 @@ const LoginPortal: React.FC = () => {
       description: 'System administration and user management'
     }
   ];
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      let emailToUse = '';
+      
+      // Determine the login credentials based on portal
+      if (activePortal === 'admin') {
+        // For admin, we might use a special email format or username
+        emailToUse = `${formData.username}@admin.quizzynet.com`;
+      } else {
+        // For student and faculty, use the provided email
+        emailToUse = formData.email;
+      }
+
+      // Sign in with Supabase
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email: emailToUse,
+        password: formData.password,
+      });
+
+      if (authError) throw authError;
+
+      // Verify user role matches the selected portal
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', data.user?.id)
+        .single();
+
+      if (!profile || profile.role !== activePortal) {
+        await supabase.auth.signOut();
+        throw new Error(`Unauthorized access to ${activePortal} portal`);
+      }
+
+      // Redirect based on role
+      // You can handle this in your routing system
+      console.log(`Successfully logged in as ${profile.role}`);
+
+    } catch (error) {
+      console.error('Login error:', error);
+      setError(error instanceof Error ? error.message : 'Login failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value
+    });
+  };
 
   const getColorClasses = (color: string, isActive: boolean) => {
     const colors = {
@@ -123,6 +148,12 @@ const LoginPortal: React.FC = () => {
           {/* Login Form */}
           <div className="p-8">
             <div className="max-w-md mx-auto">
+              {error && (
+                <div className="mb-6 p-3 bg-red-100 text-red-700 rounded-lg text-sm">
+                  {error}
+                </div>
+              )}
+
               <div className="text-center mb-6">
                 <activePortalData.icon className={`w-12 h-12 mx-auto mb-3 text-${activePortalData.color}-600`} />
                 <h3 className="text-2xl font-bold text-gray-900">{activePortalData.name}</h3>
@@ -206,6 +237,7 @@ const LoginPortal: React.FC = () => {
                       className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                       placeholder="Enter your password"
                       required
+                      minLength={8}
                     />
                     <button
                       type="button"
@@ -236,6 +268,11 @@ const LoginPortal: React.FC = () => {
                       Register here
                     </Link>
                   </p>
+                  <p className="text-sm text-gray-600 mt-2">
+                    <Link to="/forgot-password" className="text-blue-600 hover:text-blue-700">
+                      Forgot password?
+                    </Link>
+                  </p>
                 </div>
               )}
 
@@ -243,7 +280,7 @@ const LoginPortal: React.FC = () => {
                 <div className="mt-6 text-center">
                   <p className="text-sm text-gray-600">
                     Need faculty access?{' '}
-                    <Link to="/register" className="text-green-600 hover:text-green-700 font-medium">
+                    <Link to="/faculty-request" className="text-green-600 hover:text-green-700 font-medium">
                       Request Account
                     </Link>
                   </p>

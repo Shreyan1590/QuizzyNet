@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Clock, AlertTriangle, CheckCircle, XCircle, ArrowLeft } from 'lucide-react';
 import { doc, getDoc, collection, getDocs, addDoc } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
+import { db } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import SecurityManager from '../../lib/security';
 import { toast } from 'react-hot-toast';

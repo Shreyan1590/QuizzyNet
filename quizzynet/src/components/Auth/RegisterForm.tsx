@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Mail, Lock, Eye, EyeOff, User, Phone, Calendar, GraduationCap, Users } from 'lucide-react';
-import { useAuth } from '../../contexts/AuthContext';
+import { supabase } from '../../lib/supabase';
 import { toast } from 'react-hot-toast';
 
 const RegisterForm: React.FC = () => {
+  const navigate = useNavigate();
   const [registrationType, setRegistrationType] = useState<'student' | 'faculty'>('student');
   const [formData, setFormData] = useState({
     firstName: '',
@@ -23,8 +24,6 @@ const RegisterForm: React.FC = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const { register, facultyRegister } = useAuth();
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -41,28 +40,51 @@ const RegisterForm: React.FC = () => {
     setLoading(true);
 
     try {
-      if (registrationType === 'student') {
-        await register(formData.email, formData.password, {
-          firstName: formData.firstName,
-          lastName: formData.lastName,
-          phone: formData.phone,
-          dateOfBirth: formData.dateOfBirth,
-          registrationNumber: formData.registrationNumber,
-          displayName: `${formData.firstName} ${formData.lastName}`
-        });
-      } else {
-        await facultyRegister(formData.email, formData.password, {
-          firstName: formData.firstName,
-          lastName: formData.lastName,
-          phone: formData.phone,
-          facultyId: formData.facultyId,
+      // First sign up the user with Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          data: {
+            first_name: formData.firstName,
+            last_name: formData.lastName,
+            phone: formData.phone,
+            display_name: `${formData.firstName} ${formData.lastName}`
+          }
+        }
+      });
+
+      if (authError) throw authError;
+
+      // Then create the profile in the database
+      const profileData = {
+        id: authData.user?.id,
+        first_name: formData.firstName,
+        last_name: formData.lastName,
+        email: formData.email,
+        phone: formData.phone,
+        role: registrationType,
+        ...(registrationType === 'student' ? {
+          registration_number: formData.registrationNumber,
+          date_of_birth: formData.dateOfBirth
+        } : {
+          faculty_id: formData.facultyId,
           department: formData.department,
-          specialization: formData.specialization,
-          displayName: `${formData.firstName} ${formData.lastName}`
-        });
-      }
+          specialization: formData.specialization
+        })
+      };
+
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert(profileData);
+
+      if (profileError) throw profileError;
+
+      toast.success('Registration successful! Please check your email for confirmation.');
+      navigate('/login');
     } catch (error) {
       console.error('Registration error:', error);
+      toast.error(error instanceof Error ? error.message : 'Registration failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -306,6 +328,7 @@ const RegisterForm: React.FC = () => {
                       className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                       placeholder="Create a password"
                       required
+                      minLength={6}
                     />
                     <button
                       type="button"
@@ -331,6 +354,7 @@ const RegisterForm: React.FC = () => {
                       className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                       placeholder="Confirm your password"
                       required
+                      minLength={6}
                     />
                     <button
                       type="button"

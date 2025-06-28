@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, Play, Pause, Clock, Users, BookOpen } from 'lucide-react';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, onSnapshot } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
+import { supabase } from '../../lib/supabase'; // Adjust the import path as needed
 import { toast } from 'react-hot-toast';
 
 interface Quiz {
@@ -9,11 +8,11 @@ interface Quiz {
   title: string;
   description: string;
   duration: number;
-  questionsCount: number;
-  isActive: boolean;
-  createdAt: any;
-  totalAttempts: number;
-  averageScore: number;
+  questions_count: number;
+  is_active: boolean;
+  created_at: string;
+  total_attempts: number;
+  average_score: number;
 }
 
 const QuizManagement: React.FC = () => {
@@ -25,42 +24,81 @@ const QuizManagement: React.FC = () => {
     title: '',
     description: '',
     duration: 30,
-    questionsCount: 10,
-    isActive: true
+    questions_count: 10,
+    is_active: true
   });
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(
-      collection(db, 'quizzes'),
-      (snapshot) => {
-        const quizzesData = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        })) as Quiz[];
-        
-        setQuizzes(quizzesData);
-        setLoading(false);
-      },
-      (error) => {
-        console.error('Error fetching quizzes:', error);
-        toast.error('Error loading quizzes');
-        setLoading(false);
-      }
-    );
-
-    return () => unsubscribe();
+    fetchQuizzes();
   }, []);
+
+  const fetchQuizzes = async () => {
+    try {
+      setLoading(true);
+      
+      // Initial fetch
+      const { data, error } = await supabase
+        .from('quizzes')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      setQuizzes(data || []);
+      setLoading(false);
+
+      // Set up real-time subscription
+      const subscription = supabase
+        .channel('quizzes-changes')
+        .on(
+          'postgres_changes',
+          { 
+            event: '*',
+            schema: 'public',
+            table: 'quizzes'
+          },
+          (payload) => {
+            if (payload.eventType === 'INSERT') {
+              setQuizzes(prev => [payload.new as Quiz, ...prev]);
+            } else if (payload.eventType === 'UPDATE') {
+              setQuizzes(prev => 
+                prev.map(quiz => 
+                  quiz.id === payload.new.id ? payload.new as Quiz : quiz
+                )
+              );
+            } else if (payload.eventType === 'DELETE') {
+              setQuizzes(prev => prev.filter(quiz => quiz.id !== payload.old.id));
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(subscription);
+      };
+    } catch (error) {
+      console.error('Error fetching quizzes:', error);
+      toast.error('Error loading quizzes');
+      setLoading(false);
+    }
+  };
 
   const handleCreateQuiz = async (e: React.FormEvent) => {
     e.preventDefault();
     
     try {
-      await addDoc(collection(db, 'quizzes'), {
-        ...formData,
-        createdAt: new Date(),
-        totalAttempts: 0,
-        averageScore: 0
-      });
+      const { data, error } = await supabase
+        .from('quizzes')
+        .insert({
+          ...formData,
+          created_at: new Date().toISOString(),
+          total_attempts: 0,
+          average_score: 0
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
       
       toast.success('Quiz created successfully');
       setShowCreateModal(false);
@@ -77,7 +115,12 @@ const QuizManagement: React.FC = () => {
     if (!editingQuiz) return;
     
     try {
-      await updateDoc(doc(db, 'quizzes', editingQuiz.id), formData);
+      const { error } = await supabase
+        .from('quizzes')
+        .update(formData)
+        .eq('id', editingQuiz.id);
+
+      if (error) throw error;
       
       toast.success('Quiz updated successfully');
       setEditingQuiz(null);
@@ -92,7 +135,13 @@ const QuizManagement: React.FC = () => {
     if (!confirm('Are you sure you want to delete this quiz?')) return;
     
     try {
-      await deleteDoc(doc(db, 'quizzes', quizId));
+      const { error } = await supabase
+        .from('quizzes')
+        .delete()
+        .eq('id', quizId);
+
+      if (error) throw error;
+
       toast.success('Quiz deleted successfully');
     } catch (error) {
       console.error('Error deleting quiz:', error);
@@ -102,11 +151,14 @@ const QuizManagement: React.FC = () => {
 
   const handleToggleActive = async (quiz: Quiz) => {
     try {
-      await updateDoc(doc(db, 'quizzes', quiz.id), {
-        isActive: !quiz.isActive
-      });
+      const { error } = await supabase
+        .from('quizzes')
+        .update({ is_active: !quiz.is_active })
+        .eq('id', quiz.id);
+
+      if (error) throw error;
       
-      toast.success(`Quiz ${!quiz.isActive ? 'activated' : 'deactivated'}`);
+      toast.success(`Quiz ${!quiz.is_active ? 'activated' : 'deactivated'}`);
     } catch (error) {
       console.error('Error toggling quiz status:', error);
       toast.error('Error updating quiz status');
@@ -118,8 +170,8 @@ const QuizManagement: React.FC = () => {
       title: '',
       description: '',
       duration: 30,
-      questionsCount: 10,
-      isActive: true
+      questions_count: 10,
+      is_active: true
     });
   };
 
@@ -129,8 +181,8 @@ const QuizManagement: React.FC = () => {
       title: quiz.title,
       description: quiz.description,
       duration: quiz.duration,
-      questionsCount: quiz.questionsCount,
-      isActive: quiz.isActive
+      questions_count: quiz.questions_count,
+      is_active: quiz.is_active
     });
   };
 
@@ -186,7 +238,7 @@ const QuizManagement: React.FC = () => {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-500">Active Quizzes</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {quizzes.filter(q => q.isActive).length}
+                  {quizzes.filter(q => q.is_active).length}
                 </p>
               </div>
             </div>
@@ -200,7 +252,7 @@ const QuizManagement: React.FC = () => {
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-500">Total Attempts</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {quizzes.reduce((sum, quiz) => sum + (quiz.totalAttempts || 0), 0)}
+                  {quizzes.reduce((sum, quiz) => sum + (quiz.total_attempts || 0), 0)}
                 </p>
               </div>
             </div>
@@ -234,12 +286,12 @@ const QuizManagement: React.FC = () => {
                   <button
                     onClick={() => handleToggleActive(quiz)}
                     className={`p-2 rounded-lg transition-colors ${
-                      quiz.isActive
+                      quiz.is_active
                         ? 'bg-green-100 text-green-600 hover:bg-green-200'
                         : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                     }`}
                   >
-                    {quiz.isActive ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+                    {quiz.is_active ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
@@ -251,25 +303,25 @@ const QuizManagement: React.FC = () => {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Questions:</span>
-                  <span className="font-medium">{quiz.questionsCount}</span>
+                  <span className="font-medium">{quiz.questions_count}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Attempts:</span>
-                  <span className="font-medium">{quiz.totalAttempts || 0}</span>
+                  <span className="font-medium">{quiz.total_attempts || 0}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Avg Score:</span>
-                  <span className="font-medium">{quiz.averageScore || 0}%</span>
+                  <span className="font-medium">{quiz.average_score || 0}%</span>
                 </div>
               </div>
 
               <div className="flex justify-between items-center">
                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                  quiz.isActive
+                  quiz.is_active
                     ? 'bg-green-100 text-green-800'
                     : 'bg-gray-100 text-gray-800'
                 }`}>
-                  {quiz.isActive ? 'Active' : 'Inactive'}
+                  {quiz.is_active ? 'Active' : 'Inactive'}
                 </span>
 
                 <div className="flex space-x-2">
@@ -348,8 +400,8 @@ const QuizManagement: React.FC = () => {
                       </label>
                       <input
                         type="number"
-                        value={formData.questionsCount}
-                        onChange={(e) => setFormData({ ...formData, questionsCount: parseInt(e.target.value) })}
+                        value={formData.questions_count}
+                        onChange={(e) => setFormData({ ...formData, questions_count: parseInt(e.target.value) })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         min="1"
                         required
@@ -360,12 +412,12 @@ const QuizManagement: React.FC = () => {
                   <div className="flex items-center">
                     <input
                       type="checkbox"
-                      id="isActive"
-                      checked={formData.isActive}
-                      onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
+                      id="is_active"
+                      checked={formData.is_active}
+                      onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
                       className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                     />
-                    <label htmlFor="isActive" className="ml-2 block text-sm text-gray-900">
+                    <label htmlFor="is_active" className="ml-2 block text-sm text-gray-900">
                       Active (students can take this quiz)
                     </label>
                   </div>
