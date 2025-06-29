@@ -1,6 +1,6 @@
-# QuizMaster Pro - Real-time Quiz Platform
+# QuizzyNet - SIMATS | Real-time Quiz Platform
 
-A comprehensive real-time quiz application built with React, Firebase, and advanced security features.
+A comprehensive real-time quiz application built with React, Firebase, and advanced security features for SIMATS University.
 
 ## Features
 
@@ -19,14 +19,29 @@ A comprehensive real-time quiz application built with React, Firebase, and advan
   - Detailed results with explanations
 - **Dashboard**: Performance analytics, quiz history, personal profile
 
-### Admin Portal
-- **Secure Access**: Predefined admin credentials (Username: Shreyan, Password: 123user123)
-- **Student Management**: Monitor student activity, block/unblock users, view security logs
+### Faculty Portal
+- **Secure Access**: Email-based authentication with approval system
+- **Course Management**: 
+  - Create and manage courses
+  - Bulk course upload via CSV
+  - Course approval workflow
 - **Quiz Management**: 
   - CSV upload (up to 1GB)
   - Question bank management
   - Quiz configuration
   - Real-time monitoring
+- **Student Analytics**: 
+  - Comprehensive enrollment data
+  - Performance tracking
+  - 360° student view
+  - Export functionality
+
+### Admin Portal
+- **Secure Access**: Predefined admin credentials (Username: admin, Password: admin123)
+- **Student Management**: Monitor student activity, block/unblock users, view security logs
+- **Course Approval**: Review and approve faculty course requests
+- **Quiz Control**: Monitor and control quiz schedules across the platform
+- **Disciplinary Management**: Handle security violations and disciplinary actions
 - **Analytics**: Comprehensive reporting, export functionality, detailed insights
 
 ### Technical Features
@@ -58,7 +73,7 @@ A comprehensive real-time quiz application built with React, Firebase, and advan
 1. Clone the repository:
 ```bash
 git clone <repository-url>
-cd quiz-master-pro
+cd quizzynet-simats
 ```
 
 2. Install dependencies:
@@ -128,6 +143,28 @@ question,option1,option2,option3,option4,correctAnswer,explanation,difficulty,ca
 - Monitors full-screen changes
 - Automatically re-enters full-screen if exited
 
+## User Roles & Access
+
+### Student Access
+- Register with email and student registration number
+- Enroll in approved courses
+- Take quizzes with security monitoring
+- View results and performance analytics
+
+### Faculty Access
+- Register with email and faculty ID
+- Requires admin approval for account activation
+- Create and manage courses
+- Upload questions via CSV
+- Monitor student performance
+
+### Admin Access
+- Predefined credentials: admin / admin123
+- Full system control and monitoring
+- Approve faculty accounts and courses
+- Manage disciplinary actions
+- System analytics and reporting
+
 ## Deployment
 
 ### Netlify Deployment
@@ -154,6 +191,22 @@ npm run build
 
 2. Upload the `dist` folder to your hosting provider
 
+## Project Structure
+
+```
+src/
+├── components/
+│   ├── Admin/          # Admin portal components
+│   ├── Auth/           # Authentication components
+│   ├── Faculty/        # Faculty portal components
+│   ├── Layout/         # Shared layout components
+│   ├── Quiz/           # Quiz-related components
+│   └── Student/        # Student portal components
+├── contexts/           # React contexts
+├── lib/               # Utilities and configurations
+└── main.tsx           # Application entry point
+```
+
 ## Contributing
 
 1. Fork the repository
@@ -168,4 +221,8 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Support
 
-For support, please contact the development team or create an issue in the repository.
+For support, please contact the SIMATS development team or create an issue in the repository.
+
+## About SIMATS
+
+SIMATS (Saveetha Institute of Medical and Technical Sciences) is a leading educational institution committed to providing quality education through innovative technology solutions like QuizzyNet.

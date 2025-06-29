@@ -125,7 +125,7 @@ const RegisterForm: React.FC = () => {
                 <GraduationCap className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-gray-900">EduPortal</h1>
+                <h1 className="text-xl font-bold text-gray-900">QuizzyNet - SIMATS</h1>
                 <p className="text-xs text-gray-600">Learning Management System</p>
               </div>
             </Link>
@@ -142,7 +142,7 @@ const RegisterForm: React.FC = () => {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="text-center mb-8">
           <h2 className="text-3xl font-bold text-gray-900">Create Your Account</h2>
-          <p className="mt-2 text-gray-600">Join EduPortal to start your educational journey</p>
+          <p className="mt-2 text-gray-600">Join QuizzyNet - SIMATS to start your educational journey</p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-200">

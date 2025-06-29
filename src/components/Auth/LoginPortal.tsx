@@ -104,7 +104,7 @@ const LoginPortal: React.FC = () => {
                 <GraduationCap className="w-7 h-7 text-white" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">EduPortal</h1>
+                <h1 className="text-2xl font-bold text-gray-900">QuizzyNet - SIMATS</h1>
                 <p className="text-sm text-gray-600">Comprehensive Learning Management System</p>
               </div>
             </div>
@@ -323,7 +323,7 @@ const LoginPortal: React.FC = () => {
       <div className="bg-gray-50 border-t">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center text-sm text-gray-600">
-            <p>&copy; 2024 EduPortal. All rights reserved. | Secure Learning Management System</p>
+            <p>&copy; 2024 QuizzyNet - SIMATS. All rights reserved. | Secure Learning Management System</p>
           </div>
         </div>
       </div>

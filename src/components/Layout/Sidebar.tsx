@@ -99,7 +99,7 @@ const Sidebar: React.FC = () => {
         };
       default:
         return {
-          title: 'EduPortal',
+          title: 'QuizzyNet Portal',
           subtitle: 'Portal',
           icon: GraduationCap
         };
