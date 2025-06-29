@@ -1,20 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { BookOpen, CheckCircle, XCircle, Clock, User, Filter, Search } from 'lucide-react';
-import { supabase } from '../../lib/supabase'; // Adjust the import path as needed
+import { collection, getDocs, doc, updateDoc, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 import { toast } from 'react-hot-toast';
 import Sidebar from '../Layout/Sidebar';
 import Header from '../Layout/Header';
 
 interface Course {
   id: string;
-  course_code: string;
-  course_name: string;
-  subject_category: string;
-  course_category: string;
-  faculty_id: string;
-  faculty_name: string;
-  is_approved: boolean;
-  created_at: string;
+  courseCode: string;
+  courseName: string;
+  subjectCategory: string;
+  courseCategory: string;
+  facultyId: string;
+  facultyName: string;
+  isApproved: boolean;
+  createdAt: any;
 }
 
 const AdminCourses: React.FC = () => {
@@ -25,55 +26,25 @@ const AdminCourses: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState('all');
 
   useEffect(() => {
-    const fetchCourses = async () => {
-      try {
-        setLoading(true);
+    const unsubscribe = onSnapshot(
+      query(collection(db, 'courses'), orderBy('createdAt', 'desc')),
+      (snapshot) => {
+        const coursesData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as Course[];
         
-        // Fetch courses ordered by created_at in descending order
-        const { data, error } = await supabase
-          .from('courses')
-          .select('*')
-          .order('created_at', { ascending: false });
-
-        if (error) throw error;
-
-        setCourses(data || []);
-      } catch (error) {
+        setCourses(coursesData);
+        setLoading(false);
+      },
+      (error) => {
         console.error('Error fetching courses:', error);
         toast.error('Error loading courses');
-      } finally {
         setLoading(false);
       }
-    };
+    );
 
-    fetchCourses();
-
-    // Set up real-time subscription if needed
-    const subscription = supabase
-      .channel('courses-changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'courses' },
-        (payload) => {
-          // Handle real-time updates
-          if (payload.eventType === 'INSERT') {
-            setCourses(prev => [payload.new as Course, ...prev]);
-          } else if (payload.eventType === 'UPDATE') {
-            setCourses(prev => 
-              prev.map(course => 
-                course.id === payload.new.id ? payload.new as Course : course
-              )
-            );
-          } else if (payload.eventType === 'DELETE') {
-            setCourses(prev => prev.filter(course => course.id !== payload.old.id));
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(subscription);
-    };
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -81,18 +52,18 @@ const AdminCourses: React.FC = () => {
 
     if (searchTerm) {
       filtered = filtered.filter(course =>
-        course.course_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        course.course_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        course.faculty_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        course.subject_category?.toLowerCase().includes(searchTerm.toLowerCase())
+        course.courseCode?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        course.courseName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        course.facultyName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        course.subjectCategory?.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
 
     if (statusFilter !== 'all') {
       if (statusFilter === 'approved') {
-        filtered = filtered.filter(course => course.is_approved);
+        filtered = filtered.filter(course => course.isApproved);
       } else if (statusFilter === 'pending') {
-        filtered = filtered.filter(course => !course.is_approved);
+        filtered = filtered.filter(course => !course.isApproved);
       }
     }
 
@@ -101,15 +72,10 @@ const AdminCourses: React.FC = () => {
 
   const handleApproveCourse = async (courseId: string, approve: boolean) => {
     try {
-      const { error } = await supabase
-        .from('courses')
-        .update({ 
-          is_approved: approve,
-          approved_at: approve ? new Date().toISOString() : null
-        })
-        .eq('id', courseId);
-
-      if (error) throw error;
+      await updateDoc(doc(db, 'courses', courseId), {
+        isApproved: approve,
+        approvedAt: approve ? new Date() : null
+      });
       
       toast.success(`Course ${approve ? 'approved' : 'rejected'} successfully`);
     } catch (error) {
@@ -135,8 +101,8 @@ const AdminCourses: React.FC = () => {
 
   const stats = {
     total: courses.length,
-    approved: courses.filter(c => c.is_approved).length,
-    pending: courses.filter(c => !c.is_approved).length
+    approved: courses.filter(c => c.isApproved).length,
+    pending: courses.filter(c => !c.isApproved).length
   };
 
   return (
@@ -233,40 +199,40 @@ const AdminCourses: React.FC = () => {
                       <BookOpen className="w-6 h-6 text-purple-600" />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-gray-900">{course.course_code}</h3>
-                      <p className="text-sm text-gray-500">{course.subject_category}</p>
+                      <h3 className="font-semibold text-gray-900">{course.courseCode}</h3>
+                      <p className="text-sm text-gray-500">{course.subjectCategory}</p>
                     </div>
                   </div>
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                    course.is_approved ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                    course.isApproved ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
                   }`}>
-                    {course.is_approved ? 'Approved' : 'Pending'}
+                    {course.isApproved ? 'Approved' : 'Pending'}
                   </span>
                 </div>
 
-                <h4 className="text-lg font-medium text-gray-900 mb-2">{course.course_name}</h4>
+                <h4 className="text-lg font-medium text-gray-900 mb-2">{course.courseName}</h4>
                 
                 <div className="space-y-2 mb-4">
                   <div className="flex items-center text-sm text-gray-600">
                     <User className="w-4 h-4 mr-2" />
-                    <span>Faculty: {course.faculty_name}</span>
+                    <span>Faculty: {course.facultyName}</span>
                   </div>
                   <div className="flex items-center text-sm text-gray-600">
                     <BookOpen className="w-4 h-4 mr-2" />
-                    <span>Category: {course.course_category}</span>
+                    <span>Category: {course.courseCategory}</span>
                   </div>
                   <div className="flex items-center text-sm text-gray-600">
                     <Clock className="w-4 h-4 mr-2" />
                     <span>
-                      Created: {course.created_at ? 
-                        new Date(course.created_at).toLocaleDateString() : 
+                      Created: {course.createdAt?.toDate ? 
+                        new Date(course.createdAt.toDate()).toLocaleDateString() : 
                         'N/A'
                       }
                     </span>
                   </div>
                 </div>
 
-                {!course.is_approved && (
+                {!course.isApproved && (
                   <div className="flex space-x-2">
                     <button
                       onClick={() => handleApproveCourse(course.id, true)}
@@ -285,7 +251,7 @@ const AdminCourses: React.FC = () => {
                   </div>
                 )}
 
-                {course.is_approved && (
+                {course.isApproved && (
                   <div className="flex items-center justify-center py-2 text-green-600">
                     <CheckCircle className="w-5 h-5 mr-2" />
                     <span className="font-medium">Course Approved</span>

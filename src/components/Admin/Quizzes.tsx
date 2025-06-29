@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FileQuestion, Play, Pause, Clock, Users, BarChart3, Calendar } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { collection, getDocs, doc, updateDoc, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 import { toast } from 'react-hot-toast';
 import Sidebar from '../Layout/Sidebar';
 import Header from '../Layout/Header';
@@ -9,16 +10,15 @@ interface Quiz {
   id: string;
   title: string;
   description: string;
-  course_id: string;
-  course_name: string;
-  faculty_id: string;
-  faculty_name: string;
+  courseId: string;
+  courseName: string;
+  facultyId: string;
+  facultyName: string;
   duration: number;
-  questions_count: number;
-  is_active: boolean;
-  scheduled_at: string;
-  created_at: string;
-  updated_at: string;
+  questionsCount: number;
+  isActive: boolean;
+  scheduledAt: any;
+  createdAt: any;
 }
 
 const AdminQuizzes: React.FC = () => {
@@ -26,71 +26,33 @@ const AdminQuizzes: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchQuizzes();
+    const unsubscribe = onSnapshot(
+      query(collection(db, 'quizzes'), orderBy('createdAt', 'desc')),
+      (snapshot) => {
+        const quizzesData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as Quiz[];
+        
+        setQuizzes(quizzesData);
+        setLoading(false);
+      },
+      (error) => {
+        console.error('Error fetching quizzes:', error);
+        toast.error('Error loading quizzes');
+        setLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
   }, []);
-
-  const fetchQuizzes = async () => {
-    try {
-      setLoading(true);
-      
-      // Initial fetch
-      const { data, error } = await supabase
-        .from('quizzes')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      setQuizzes(data || []);
-      setLoading(false);
-
-      // Set up real-time subscription
-      const subscription = supabase
-        .channel('quizzes-changes')
-        .on(
-          'postgres_changes',
-          { 
-            event: '*',
-            schema: 'public',
-            table: 'quizzes'
-          },
-          (payload) => {
-            if (payload.eventType === 'INSERT') {
-              setQuizzes(prev => [payload.new as Quiz, ...prev]);
-            } else if (payload.eventType === 'UPDATE') {
-              setQuizzes(prev => 
-                prev.map(quiz => 
-                  quiz.id === payload.new.id ? payload.new as Quiz : quiz
-                )
-              );
-            } else if (payload.eventType === 'DELETE') {
-              setQuizzes(prev => prev.filter(quiz => quiz.id !== payload.old.id));
-            }
-          }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(subscription);
-      };
-    } catch (error) {
-      console.error('Error fetching quizzes:', error);
-      toast.error('Error loading quizzes');
-      setLoading(false);
-    }
-  };
 
   const handleToggleQuiz = async (quizId: string, isActive: boolean) => {
     try {
-      const { error } = await supabase
-        .from('quizzes')
-        .update({ 
-          is_active: !isActive,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', quizId);
-
-      if (error) throw error;
+      await updateDoc(doc(db, 'quizzes', quizId), {
+        isActive: !isActive,
+        updatedAt: new Date()
+      });
       
       toast.success(`Quiz ${!isActive ? 'activated' : 'deactivated'} successfully`);
     } catch (error) {
@@ -116,8 +78,8 @@ const AdminQuizzes: React.FC = () => {
 
   const stats = {
     total: quizzes.length,
-    active: quizzes.filter(q => q.is_active).length,
-    scheduled: quizzes.filter(q => q.scheduled_at).length
+    active: quizzes.filter(q => q.isActive).length,
+    scheduled: quizzes.filter(q => q.scheduledAt).length
   };
 
   return (
@@ -180,9 +142,9 @@ const AdminQuizzes: React.FC = () => {
                     <div className="flex items-center space-x-3 mb-2">
                       <h3 className="text-lg font-semibold text-gray-900">{quiz.title}</h3>
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        quiz.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                        quiz.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
                       }`}>
-                        {quiz.is_active ? 'Active' : 'Inactive'}
+                        {quiz.isActive ? 'Active' : 'Inactive'}
                       </span>
                     </div>
                     <p className="text-gray-600 mb-3">{quiz.description}</p>
@@ -190,7 +152,7 @@ const AdminQuizzes: React.FC = () => {
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-gray-500">
                       <div className="flex items-center">
                         <Users className="w-4 h-4 mr-1" />
-                        <span>Faculty: {quiz.faculty_name}</span>
+                        <span>Faculty: {quiz.facultyName}</span>
                       </div>
                       <div className="flex items-center">
                         <Clock className="w-4 h-4 mr-1" />
@@ -198,24 +160,24 @@ const AdminQuizzes: React.FC = () => {
                       </div>
                       <div className="flex items-center">
                         <FileQuestion className="w-4 h-4 mr-1" />
-                        <span>Questions: {quiz.questions_count}</span>
+                        <span>Questions: {quiz.questionsCount}</span>
                       </div>
                       <div className="flex items-center">
                         <Calendar className="w-4 h-4 mr-1" />
                         <span>
-                          Created: {quiz.created_at ? 
-                            new Date(quiz.created_at).toLocaleDateString() : 
+                          Created: {quiz.createdAt?.toDate ? 
+                            new Date(quiz.createdAt.toDate()).toLocaleDateString() : 
                             'N/A'
                           }
                         </span>
                       </div>
                     </div>
 
-                    {quiz.scheduled_at && (
+                    {quiz.scheduledAt && (
                       <div className="mt-2 p-2 bg-blue-50 rounded-lg">
                         <p className="text-sm text-blue-800">
                           <Calendar className="w-4 h-4 inline mr-1" />
-                          Scheduled for: {new Date(quiz.scheduled_at).toLocaleString()}
+                          Scheduled for: {quiz.scheduledAt.toDate().toLocaleString()}
                         </p>
                       </div>
                     )}
@@ -223,14 +185,14 @@ const AdminQuizzes: React.FC = () => {
                   
                   <div className="flex items-center space-x-2 ml-4">
                     <button
-                      onClick={() => handleToggleQuiz(quiz.id, quiz.is_active)}
+                      onClick={() => handleToggleQuiz(quiz.id, quiz.isActive)}
                       className={`inline-flex items-center px-4 py-2 rounded-lg font-medium transition-colors ${
-                        quiz.is_active
+                        quiz.isActive
                           ? 'bg-red-600 text-white hover:bg-red-700'
                           : 'bg-green-600 text-white hover:bg-green-700'
                       }`}
                     >
-                      {quiz.is_active ? (
+                      {quiz.isActive ? (
                         <>
                           <Pause className="w-4 h-4 mr-2" />
                           Deactivate

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart3, Download, Filter, Search, Eye, TrendingUp, Users, Award } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { db } from '../../lib/supabase';
+import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 import { toast } from 'react-hot-toast';
 import Sidebar from '../Layout/Sidebar';
 import Header from '../Layout/Header';

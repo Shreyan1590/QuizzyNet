@@ -1,24 +1,11 @@
 [build]
-  command = "npm install && npm run build"
   publish = "dist"
-  functions = "functions"
-
-[build.environment]
-  NODE_VERSION = "18"
-  NPM_FLAGS = "--legacy-peer-deps"
-
-[context.production.environment]
-  VITE_SUPABASE_URL = "https://reupjebpmrzwougyifbb.supabase.co"
-  VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJldXBqZWJwbXJ6d291Z3lpZmJiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTEwMzM3NzcsImV4cCI6MjA2NjYwOTc3N30.pRoxys4DhE6iF903SfEEuzpfFoZcF4Olx6Rq8LXew98"
-  GENERATE_SOURCEMAP = "false"
+  command = "npm run build"
 
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
 
-[[headers]]
-  for = "/*"
-  [headers.values]
-    X-Frame-Options = "DENY"
-    X-Content-Type-Options = "nosniff"
+[build.environment]
+  NODE_VERSION = "18"

@@ -1,30 +1,31 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, AlertTriangle, Plus, Edit, Trash2, User, Calendar } from 'lucide-react';
-import { supabase } from '../../lib/supabase'; // Adjust the import path as needed
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 import { toast } from 'react-hot-toast';
 import Sidebar from '../Layout/Sidebar';
 import Header from '../Layout/Header';
 
 interface DisciplinaryAction {
   id: string;
-  student_id: string;
-  student_email: string;
-  student_name: string;
+  studentId: string;
+  studentEmail: string;
+  studentName: string;
   type: 'warning' | 'suspension' | 'probation' | 'expulsion';
   reason: string;
   description: string;
-  issued_by: string;
-  issued_at: string;
+  issuedBy: string;
+  issuedAt: any;
   status: 'active' | 'resolved' | 'appealed';
   severity: 'low' | 'medium' | 'high' | 'critical';
 }
 
 interface Student {
   id: string;
-  first_name: string;
-  last_name: string;
+  firstName: string;
+  lastName: string;
   email: string;
-  registration_number: string;
+  registrationNumber: string;
 }
 
 const AdminDisciplinary: React.FC = () => {
@@ -34,7 +35,7 @@ const AdminDisciplinary: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingAction, setEditingAction] = useState<DisciplinaryAction | null>(null);
   const [formData, setFormData] = useState({
-    student_id: '',
+    studentId: '',
     type: 'warning' as 'warning' | 'suspension' | 'probation' | 'expulsion',
     reason: '',
     description: '',
@@ -48,66 +49,69 @@ const AdminDisciplinary: React.FC = () => {
 
   const fetchStudents = async () => {
     try {
-      const { data, error } = await supabase
-        .from('students')
-        .select('*');
-
-      if (error) throw error;
+      const studentsSnapshot = await getDocs(collection(db, 'students'));
+      const studentsData = studentsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as Student[];
       
-      setStudents(data || []);
+      setStudents(studentsData);
     } catch (error) {
       console.error('Error fetching students:', error);
-      toast.error('Error loading students');
+      // Don't show error toast for permission issues during initial load
+      if (error.code !== 'permission-denied') {
+        toast.error('Error loading students');
+      }
     }
   };
 
   const fetchDisciplinaryActions = async () => {
     try {
-      setLoading(true);
+      // Try to set up real-time listener first
+      const unsubscribe = onSnapshot(
+        query(collection(db, 'disciplinaryActions'), orderBy('issuedAt', 'desc')),
+        (snapshot) => {
+          const actionsData = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          })) as DisciplinaryAction[];
+          
+          setActions(actionsData);
+          setLoading(false);
+        },
+        (error) => {
+          console.error('Error in disciplinary actions listener:', error);
+          // Fall back to one-time fetch if real-time listener fails
+          fetchDisciplinaryActionsOnce();
+        }
+      );
+
+      return () => unsubscribe();
+    } catch (error) {
+      console.error('Error setting up disciplinary actions listener:', error);
+      // Fall back to one-time fetch
+      fetchDisciplinaryActionsOnce();
+    }
+  };
+
+  const fetchDisciplinaryActionsOnce = async () => {
+    try {
+      const actionsSnapshot = await getDocs(
+        query(collection(db, 'disciplinaryActions'), orderBy('issuedAt', 'desc'))
+      );
+      const actionsData = actionsSnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as DisciplinaryAction[];
       
-      // Initial fetch
-      const { data, error } = await supabase
-        .from('disciplinary_actions')
-        .select('*')
-        .order('issued_at', { ascending: false });
-
-      if (error) throw error;
-
-      setActions(data || []);
-      setLoading(false);
-
-      // Set up real-time subscription
-      const subscription = supabase
-        .channel('disciplinary-actions-changes')
-        .on(
-          'postgres_changes',
-          { 
-            event: '*',
-            schema: 'public',
-            table: 'disciplinary_actions'
-          },
-          (payload) => {
-            if (payload.eventType === 'INSERT') {
-              setActions(prev => [payload.new as DisciplinaryAction, ...prev]);
-            } else if (payload.eventType === 'UPDATE') {
-              setActions(prev => 
-                prev.map(action => 
-                  action.id === payload.new.id ? payload.new as DisciplinaryAction : action
-                )
-              );
-            } else if (payload.eventType === 'DELETE') {
-              setActions(prev => prev.filter(action => action.id !== payload.old.id));
-            }
-          }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(subscription);
-      };
+      setActions(actionsData);
     } catch (error) {
       console.error('Error fetching disciplinary actions:', error);
-      toast.error('Error loading disciplinary actions');
+      // Don't show error toast for permission issues during initial load
+      if (error.code !== 'permission-denied') {
+        toast.error('Error loading disciplinary actions');
+      }
+    } finally {
       setLoading(false);
     }
   };
@@ -116,7 +120,7 @@ const AdminDisciplinary: React.FC = () => {
     e.preventDefault();
     
     try {
-      const selectedStudent = students.find(s => s.id === formData.student_id);
+      const selectedStudent = students.find(s => s.id === formData.studentId);
       if (!selectedStudent) {
         toast.error('Please select a student');
         return;
@@ -124,30 +128,19 @@ const AdminDisciplinary: React.FC = () => {
 
       const actionData = {
         ...formData,
-        student_email: selectedStudent.email,
-        student_name: `${selectedStudent.first_name} ${selectedStudent.last_name}`,
-        issued_by: 'System Administrator',
-        issued_at: new Date().toISOString(),
+        studentEmail: selectedStudent.email,
+        studentName: `${selectedStudent.firstName} ${selectedStudent.lastName}`,
+        issuedBy: 'System Administrator',
+        issuedAt: new Date(),
         status: 'active' as const
       };
 
-      const { data, error } = await supabase
-        .from('disciplinary_actions')
-        .insert(actionData)
-        .select()
-        .single();
-
-      if (error) throw error;
-
+      await addDoc(collection(db, 'disciplinaryActions'), actionData);
+      
       // Update student's disciplinary actions array
-      const { error: studentError } = await supabase
-        .from('students')
-        .update({ 
-          disciplinary_actions: [...(selectedStudent as any).disciplinary_actions || [], actionData]
-        })
-        .eq('id', formData.student_id);
-
-      if (studentError) throw studentError;
+      await updateDoc(doc(db, 'students', formData.studentId), {
+        disciplinaryActions: [...(selectedStudent as any).disciplinaryActions || [], actionData]
+      });
 
       toast.success('Disciplinary action created successfully');
       setShowCreateModal(false);
@@ -164,15 +157,10 @@ const AdminDisciplinary: React.FC = () => {
     if (!editingAction) return;
     
     try {
-      const { error } = await supabase
-        .from('disciplinary_actions')
-        .update({
-          ...formData,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', editingAction.id);
-
-      if (error) throw error;
+      await updateDoc(doc(db, 'disciplinaryActions', editingAction.id), {
+        ...formData,
+        updatedAt: new Date()
+      });
       
       toast.success('Disciplinary action updated successfully');
       setEditingAction(null);
@@ -187,13 +175,7 @@ const AdminDisciplinary: React.FC = () => {
     if (!confirm('Are you sure you want to delete this disciplinary action?')) return;
     
     try {
-      const { error } = await supabase
-        .from('disciplinary_actions')
-        .delete()
-        .eq('id', actionId);
-
-      if (error) throw error;
-
+      await deleteDoc(doc(db, 'disciplinaryActions', actionId));
       toast.success('Disciplinary action deleted successfully');
     } catch (error) {
       console.error('Error deleting disciplinary action:', error);
@@ -203,7 +185,7 @@ const AdminDisciplinary: React.FC = () => {
 
   const resetForm = () => {
     setFormData({
-      student_id: '',
+      studentId: '',
       type: 'warning',
       reason: '',
       description: '',
@@ -214,7 +196,7 @@ const AdminDisciplinary: React.FC = () => {
   const openEditModal = (action: DisciplinaryAction) => {
     setEditingAction(action);
     setFormData({
-      student_id: action.student_id,
+      studentId: action.studentId,
       type: action.type,
       reason: action.reason,
       description: action.description,
@@ -344,20 +326,20 @@ const AdminDisciplinary: React.FC = () => {
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm text-gray-500 mb-3">
                       <div className="flex items-center">
                         <User className="w-4 h-4 mr-1" />
-                        <span>Student: {action.student_name}</span>
+                        <span>Student: {action.studentName}</span>
                       </div>
                       <div className="flex items-center">
                         <Calendar className="w-4 h-4 mr-1" />
                         <span>
-                          Issued: {action.issued_at ? 
-                            new Date(action.issued_at).toLocaleDateString() : 
+                          Issued: {action.issuedAt?.toDate ? 
+                            new Date(action.issuedAt.toDate()).toLocaleDateString() : 
                             'N/A'
                           }
                         </span>
                       </div>
                       <div className="flex items-center">
                         <Shield className="w-4 h-4 mr-1" />
-                        <span>By: {action.issued_by}</span>
+                        <span>By: {action.issuedBy}</span>
                       </div>
                     </div>
                     
@@ -408,8 +390,8 @@ const AdminDisciplinary: React.FC = () => {
                         Student
                       </label>
                       <select
-                        value={formData.student_id}
-                        onChange={(e) => setFormData({ ...formData, student_id: e.target.value })}
+                        value={formData.studentId}
+                        onChange={(e) => setFormData({ ...formData, studentId: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                         required
                         disabled={!!editingAction}
@@ -417,7 +399,7 @@ const AdminDisciplinary: React.FC = () => {
                         <option value="">Select Student</option>
                         {students.map(student => (
                           <option key={student.id} value={student.id}>
-                            {student.first_name} {student.last_name} ({student.registration_number})
+                            {student.firstName} {student.lastName} ({student.registrationNumber})
                           </option>
                         ))}
                       </select>

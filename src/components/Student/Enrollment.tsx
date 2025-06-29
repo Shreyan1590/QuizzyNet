@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { BookOpen, Plus, Check, Clock, User, Award } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { supabase } from '../../lib/supabase'
+import { collection, query, where, getDocs, doc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 import { toast } from 'react-hot-toast';
 import Sidebar from '../Layout/Sidebar';
 import Header from '../Layout/Header';

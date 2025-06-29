@@ -1,0 +1,64 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow users to read and write their own student documents
+    match /students/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Allow users to read and write their own faculty documents
+    match /faculty/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Allow all users to read courses (including admin)
+    match /courses/{courseId} {
+      allow read: if true;
+      allow write: if request.auth != null && 
+        (resource == null || resource.data.facultyId == request.auth.uid);
+    }
+    
+    // Allow all users to read quizzes (including admin)
+    match /quizzes/{quizId} {
+      allow read: if true;
+      allow write: if request.auth != null && 
+        (resource == null || resource.data.facultyId == request.auth.uid);
+    }
+    
+    // Allow all users to read quiz results (including admin)
+    match /quizResults/{resultId} {
+      allow read: if true;
+      allow write: if request.auth != null && 
+        (resource == null || resource.data.studentId == request.auth.uid);
+    }
+    
+    // Allow all users to read and write questions (including admin)
+    match /questions/{questionId} {
+      allow read, write: if true;
+    }
+    
+    // Admin-only collections - allow read/write for admin operations
+    // Note: This is a temporary solution. In production, implement proper admin authentication
+    match /disciplinaryActions/{actionId} {
+      allow read, write: if true; // Temporary: allow all access
+    }
+    
+    // Allow all authenticated users to read student data for admin/faculty views
+    // Note: This is a temporary solution. In production, implement role-based access
+    match /students/{studentId} {
+      allow read: if true; // Temporary: allow all read access
+      allow write: if request.auth != null && request.auth.uid == studentId;
+    }
+    
+    // Allow all authenticated users to read faculty data for admin views
+    match /faculty/{facultyId} {
+      allow read: if true; // Temporary: allow all read access
+      allow write: if request.auth != null && request.auth.uid == facultyId;
+    }
+    
+    // Deny all other access by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

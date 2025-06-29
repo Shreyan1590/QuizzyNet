@@ -1,18 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Users, BookOpen, TrendingUp, AlertTriangle, Upload, FileText, BarChart3, Shield, Settings, Eye, PieChart, LineChart, Activity } from 'lucide-react';
-import { supabase } from '../../lib/supabase'; // Adjust the import path as needed
+import { collection, getDocs, query, orderBy, onSnapshot, where } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 import Sidebar from '../Layout/Sidebar';
 import Header from '../Layout/Header';
-
-interface QuizResult {
-  id: string;
-  student_email: string;
-  quiz_title: string;
-  score: number;
-  completed_at: string;
-  status: string;
-}
 
 const AdminDashboard: React.FC = () => {
   const [stats, setStats] = useState({
@@ -28,7 +20,7 @@ const AdminDashboard: React.FC = () => {
     securityViolations: 0,
     systemHealth: 98
   });
-  const [recentActivity, setRecentActivity] = useState<QuizResult[]>([]);
+  const [recentActivity, setRecentActivity] = useState([]);
   const [systemMetrics, setSystemMetrics] = useState({
     serverLoad: 45,
     databaseConnections: 127,
@@ -46,231 +38,115 @@ const AdminDashboard: React.FC = () => {
     initializeRealTimeListeners();
   }, []);
 
-  const initializeRealTimeListeners = async () => {
-    try {
-      setLoading(true);
-
-      // Fetch initial data
-      await Promise.all([
-        fetchStudents(),
-        fetchFaculty(),
-        fetchCourses(),
-        fetchQuizzes(),
-        fetchQuestions(),
-        fetchQuizResults()
-      ]);
-
-      // Set up real-time subscriptions
-      setupRealtimeSubscriptions();
-
-      // Simulate real-time system metrics
-      const metricsInterval = setInterval(() => {
-        setSystemMetrics(prev => ({
-          serverLoad: Math.max(20, Math.min(80, prev.serverLoad + (Math.random() - 0.5) * 10)),
-          databaseConnections: Math.max(50, Math.min(200, prev.databaseConnections + Math.floor((Math.random() - 0.5) * 20))),
-          activeUsers: Math.max(100, Math.min(500, prev.activeUsers + Math.floor((Math.random() - 0.5) * 30))),
-          responseTime: Math.max(50, Math.min(300, prev.responseTime + Math.floor((Math.random() - 0.5) * 40)))
+  const initializeRealTimeListeners = () => {
+    // Real-time students data
+    const studentsUnsubscribe = onSnapshot(
+      collection(db, 'students'),
+      (snapshot) => {
+        const students = snapshot.docs
+          .map(doc => ({ id: doc.id, ...doc.data() }))
+          .filter(user => user.role === 'student');
+        
+        const violations = students.reduce((sum, student) => sum + (student.tabSwitchCount || 0), 0);
+        
+        setStats(prev => ({
+          ...prev,
+          totalStudents: students.length,
+          securityViolations: violations
         }));
-      }, 5000);
+      }
+    );
 
-      return () => {
-        clearInterval(metricsInterval);
-        // Supabase will automatically handle channel cleanup
-      };
-    } catch (error) {
-      console.error('Error initializing dashboard:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    // Real-time faculty data
+    const facultyUnsubscribe = onSnapshot(
+      collection(db, 'faculty'),
+      (snapshot) => {
+        const faculty = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        
+        setStats(prev => ({
+          ...prev,
+          totalFaculty: faculty.length
+        }));
+      }
+    );
 
-  const fetchStudents = async () => {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('role', 'student');
+    // Real-time courses data
+    const coursesUnsubscribe = onSnapshot(
+      collection(db, 'courses'),
+      (snapshot) => {
+        const courses = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const approved = courses.filter(c => c.isApproved).length;
+        const pending = courses.filter(c => !c.isApproved).length;
+        
+        setStats(prev => ({
+          ...prev,
+          totalCourses: courses.length,
+          approvedCourses: approved,
+          pendingCourses: pending
+        }));
+      }
+    );
 
-    if (error) throw error;
+    // Real-time quizzes data
+    const quizzesUnsubscribe = onSnapshot(
+      collection(db, 'quizzes'),
+      (snapshot) => {
+        const quizzes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        
+        setStats(prev => ({
+          ...prev,
+          totalQuizzes: quizzes.length,
+          activeQuizzes: quizzes.filter(q => q.isActive).length
+        }));
+      }
+    );
 
-    const violations = data.reduce((sum, student) => sum + (student.tab_switch_count || 0), 0);
-    
-    setStats(prev => ({
-      ...prev,
-      totalStudents: data.length,
-      securityViolations: violations
-    }));
-  };
+    // Real-time questions data
+    const questionsUnsubscribe = onSnapshot(
+      collection(db, 'questions'),
+      (snapshot) => {
+        setStats(prev => ({
+          ...prev,
+          totalQuestions: snapshot.docs.length
+        }));
+      }
+    );
 
-  const fetchFaculty = async () => {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('role', 'faculty');
+    // Real-time quiz results data
+    const resultsUnsubscribe = onSnapshot(
+      query(collection(db, 'quizResults'), orderBy('completedAt', 'desc')),
+      (snapshot) => {
+        const attempts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        
+        setStats(prev => ({
+          ...prev,
+          totalAttempts: attempts.length
+        }));
+        
+        setRecentActivity(attempts.slice(0, 10));
+        setLoading(false);
+      }
+    );
 
-    if (error) throw error;
-    
-    setStats(prev => ({
-      ...prev,
-      totalFaculty: data.length
-    }));
-  };
+    // Simulate real-time system metrics
+    const metricsInterval = setInterval(() => {
+      setSystemMetrics(prev => ({
+        serverLoad: Math.max(20, Math.min(80, prev.serverLoad + (Math.random() - 0.5) * 10)),
+        databaseConnections: Math.max(50, Math.min(200, prev.databaseConnections + Math.floor((Math.random() - 0.5) * 20))),
+        activeUsers: Math.max(100, Math.min(500, prev.activeUsers + Math.floor((Math.random() - 0.5) * 30))),
+        responseTime: Math.max(50, Math.min(300, prev.responseTime + Math.floor((Math.random() - 0.5) * 40)))
+      }));
+    }, 5000);
 
-  const fetchCourses = async () => {
-    const { data, error } = await supabase
-      .from('courses')
-      .select('*');
-
-    if (error) throw error;
-
-    const approved = data.filter(c => c.is_approved).length;
-    const pending = data.filter(c => !c.is_approved).length;
-    
-    setStats(prev => ({
-      ...prev,
-      totalCourses: data.length,
-      approvedCourses: approved,
-      pendingCourses: pending
-    }));
-  };
-
-  const fetchQuizzes = async () => {
-    const { data, error } = await supabase
-      .from('quizzes')
-      .select('*');
-
-    if (error) throw error;
-    
-    setStats(prev => ({
-      ...prev,
-      totalQuizzes: data.length,
-      activeQuizzes: data.filter(q => q.is_active).length
-    }));
-  };
-
-  const fetchQuestions = async () => {
-    const { count, error } = await supabase
-      .from('questions')
-      .select('*', { count: 'exact', head: true });
-
-    if (error) throw error;
-    
-    setStats(prev => ({
-      ...prev,
-      totalQuestions: count || 0
-    }));
-  };
-
-  const fetchQuizResults = async () => {
-    const { data, error } = await supabase
-      .from('quiz_results')
-      .select('*')
-      .order('completed_at', { ascending: false })
-      .limit(10);
-
-    if (error) throw error;
-
-    setStats(prev => ({
-      ...prev,
-      totalAttempts: data.length
-    }));
-    
-    setRecentActivity(data);
-  };
-
-  const setupRealtimeSubscriptions = () => {
-    // Students subscription
-    supabase
-      .channel('students-changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'users', filter: 'role=eq.student' },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            setStats(prev => ({
-              ...prev,
-              totalStudents: prev.totalStudents + 1,
-              securityViolations: prev.securityViolations + (payload.new.tab_switch_count || 0)
-            }));
-          } else if (payload.eventType === 'UPDATE') {
-            // Handle student updates if needed
-          } else if (payload.eventType === 'DELETE') {
-            setStats(prev => ({
-              ...prev,
-              totalStudents: prev.totalStudents - 1
-            }));
-          }
-        }
-      )
-      .subscribe();
-
-    // Faculty subscription
-    supabase
-      .channel('faculty-changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'users', filter: 'role=eq.faculty' },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            setStats(prev => ({ ...prev, totalFaculty: prev.totalFaculty + 1 }));
-          } else if (payload.eventType === 'DELETE') {
-            setStats(prev => ({ ...prev, totalFaculty: prev.totalFaculty - 1 }));
-          }
-        }
-      )
-      .subscribe();
-
-    // Courses subscription
-    supabase
-      .channel('courses-changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'courses' },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            const isApproved = payload.new.is_approved;
-            setStats(prev => ({
-              ...prev,
-              totalCourses: prev.totalCourses + 1,
-              approvedCourses: isApproved ? prev.approvedCourses + 1 : prev.approvedCourses,
-              pendingCourses: !isApproved ? prev.pendingCourses + 1 : prev.pendingCourses
-            }));
-          } else if (payload.eventType === 'UPDATE') {
-            // Handle course approval status changes
-            if (payload.new.is_approved !== payload.old.is_approved) {
-              setStats(prev => ({
-                ...prev,
-                approvedCourses: payload.new.is_approved ? prev.approvedCourses + 1 : prev.approvedCourses - 1,
-                pendingCourses: !payload.new.is_approved ? prev.pendingCourses + 1 : prev.pendingCourses - 1
-              }));
-            }
-          } else if (payload.eventType === 'DELETE') {
-            const wasApproved = payload.old.is_approved;
-            setStats(prev => ({
-              ...prev,
-              totalCourses: prev.totalCourses - 1,
-              approvedCourses: wasApproved ? prev.approvedCourses - 1 : prev.approvedCourses,
-              pendingCourses: !wasApproved ? prev.pendingCourses - 1 : prev.pendingCourses
-            }));
-          }
-        }
-      )
-      .subscribe();
-
-    // Quiz results subscription
-    supabase
-      .channel('quiz-results-changes')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'quiz_results' },
-        (payload) => {
-          setStats(prev => ({
-            ...prev,
-            totalAttempts: prev.totalAttempts + 1
-          }));
-          setRecentActivity(prev => [payload.new as QuizResult, ...prev.slice(0, 9)]);
-        }
-      )
-      .subscribe();
+    return () => {
+      studentsUnsubscribe();
+      facultyUnsubscribe();
+      coursesUnsubscribe();
+      quizzesUnsubscribe();
+      questionsUnsubscribe();
+      resultsUnsubscribe();
+      clearInterval(metricsInterval);
+    };
   };
 
   if (loading) {
@@ -589,13 +465,13 @@ const AdminDashboard: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {recentActivity.map((activity) => (
+                    {recentActivity.map((activity: any) => (
                       <tr key={activity.id} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {activity.student_email || 'Unknown Student'}
+                          {activity.studentEmail || 'Unknown Student'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {activity.quiz_title}
+                          {activity.quizTitle}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
@@ -607,8 +483,8 @@ const AdminDashboard: React.FC = () => {
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {activity.completed_at ? 
-                            new Date(activity.completed_at).toLocaleDateString() :
+                          {activity.completedAt?.toDate ? 
+                            new Date(activity.completedAt.toDate()).toLocaleDateString() :
                             'N/A'
                           }
                         </td>

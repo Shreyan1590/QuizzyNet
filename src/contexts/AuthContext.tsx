@@ -1,72 +1,25 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { 
+  User, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged
+} from 'firebase/auth';
+import { doc, setDoc, getDoc, collection, query, where, getDocs, onSnapshot } from 'firebase/firestore';
+import { auth, db } from '../lib/firebase';
 import { toast } from 'react-hot-toast';
-import { createClient, User } from '@supabase/supabase-js';
-
-// Initialize Supabase client
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
-type RoleType = 'student' | 'faculty' | 'admin' | null;
-
-interface StudentData {
-  uid: string;
-  email: string;
-  registration_number: string;
-  full_name: string;
-  is_blocked: boolean;
-  enrolled_courses: string[];
-  completed_courses: string[];
-  disciplinary_actions: string[];
-  learning_progress: {
-    total_courses: number;
-    completed_courses: number;
-    average_grade: number;
-    total_quizzes: number;
-    average_score: number;
-  };
-  created_at: string;
-  role: 'student';
-}
-
-interface FacultyData {
-  uid: string;
-  email: string;
-  faculty_id: string;
-  full_name: string;
-  department: string;
-  is_approved: boolean;
-  courses: string[];
-  analytics: {
-    total_courses: number;
-    total_students: number;
-    total_quizzes: number;
-    average_student_score: number;
-  };
-  created_at: string;
-  role: 'faculty';
-}
-
-interface AdminData {
-  uid: string;
-  email: string;
-  full_name: string;
-  role: 'admin';
-}
-
-type UserData = StudentData | FacultyData | AdminData | null;
 
 interface AuthContextType {
   currentUser: User | null;
-  userRole: RoleType;
-  userData: UserData;
+  userRole: 'student' | 'faculty' | 'admin' | null;
+  userData: any;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, userData: Omit<StudentData, 'uid' | 'email' | 'role' | 'created_at' | keyof StudentData['learning_progress']>) => Promise<void>;
+  register: (email: string, password: string, userData: any) => Promise<void>;
   facultyLogin: (email: string, password: string) => Promise<void>;
-  facultyRegister: (email: string, password: string, userData: Omit<FacultyData, 'uid' | 'email' | 'role' | 'created_at' | keyof FacultyData['analytics']>) => Promise<void>;
-  adminLogin: (email: string, password: string) => Promise<void>;
+  facultyRegister: (email: string, password: string, userData: any) => Promise<void>;
+  adminLogin: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUserData: () => Promise<void>;
 }
@@ -81,221 +34,215 @@ export const useAuth = () => {
   return context;
 };
 
-const executeAuthOperation = async (
-  operation: () => Promise<void>,
-  successMessage: string
-) => {
-  try {
-    await operation();
-    toast.success(successMessage);
-  } catch (error: any) {
-    const message = error.message || 'Authentication failed';
-    toast.error(message);
-    throw error;
-  }
-};
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [userRole, setUserRole] = useState<RoleType>(null);
-  const [userData, setUserData] = useState<UserData>(null);
+  const [userRole, setUserRole] = useState<'student' | 'faculty' | 'admin' | null>(null);
+  const [userData, setUserData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [authInitialized, setAuthInitialized] = useState(false);
 
-  const refreshUserData = async (user: User | null = currentUser) => {
-    if (!user) {
+  const refreshUserData = async (user?: User) => {
+    const targetUser = user || currentUser;
+    if (!targetUser) {
       setUserRole(null);
       setUserData(null);
       return;
     }
 
     try {
-      // Check admin first
-      const { data: adminData, error: adminError } = await supabase
-        .from('admins')
-        .select('*')
-        .eq('uid', user.id)
-        .single();
-
-      if (adminData && !adminError) {
-        setUserRole('admin');
-        setUserData({ ...adminData, uid: user.id, role: 'admin' } as AdminData);
-        return;
-      }
-
-      // Check faculty
-      const { data: facultyData, error: facultyError } = await supabase
-        .from('faculty')
-        .select('*')
-        .eq('uid', user.id)
-        .single();
-
-      if (facultyData && !facultyError) {
-        if (!facultyData.is_approved) {
-          await logout();
-          throw new Error('Faculty account pending approval');
-        }
-        setUserRole('faculty');
-        setUserData({ ...facultyData, uid: user.id, role: 'faculty' } as FacultyData);
-        return;
-      }
-
-      // Check student
-      const { data: studentData, error: studentError } = await supabase
-        .from('students')
-        .select('*')
-        .eq('uid', user.id)
-        .single();
-
-      if (studentData && !studentError) {
-        if (studentData.is_blocked) {
-          await logout();
-          throw new Error('Account blocked');
-        }
+      // Check student collection first
+      const studentDoc = await getDoc(doc(db, 'students', targetUser.uid));
+      if (studentDoc.exists()) {
+        const data = studentDoc.data();
         setUserRole('student');
-        setUserData({ ...studentData, uid: user.id, role: 'student' } as StudentData);
+        setUserData(data);
         return;
       }
 
-      // No matching account found
-      await logout();
-      throw new Error('User account not found');
-    } catch (error: any) {
+      // Check faculty collection
+      const facultyDoc = await getDoc(doc(db, 'faculty', targetUser.uid));
+      if (facultyDoc.exists()) {
+        const data = facultyDoc.data();
+        setUserRole('faculty');
+        setUserData(data);
+        return;
+      }
+
+      // If no user data found, clear everything
+      setUserRole(null);
+      setUserData(null);
+    } catch (error) {
       console.error('Error refreshing user data:', error);
-      throw error;
+      setUserRole(null);
+      setUserData(null);
     }
   };
 
   const login = async (email: string, password: string) => {
-    return executeAuthOperation(async () => {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+    try {
+      const result = await signInWithEmailAndPassword(auth, email, password);
+      
+      // Check if user exists in students collection
+      const studentDoc = await getDoc(doc(db, 'students', result.user.uid));
+      
+      if (studentDoc.exists()) {
+        const data = studentDoc.data();
+        if (data.isBlocked) {
+          await signOut(auth);
+          toast.error('Your Account is Blocked. Contact Faculty/Admin to resolve this');
+          throw new Error('Account blocked');
+        }
+        setUserRole('student');
+        setUserData(data);
+        toast.success('Login successful!');
+        return;
+      }
 
-      if (error) throw error;
-      if (!data.user) throw new Error('No user returned');
+      // Check if user exists in faculty collection
+      const facultyDoc = await getDoc(doc(db, 'faculty', result.user.uid));
+      if (facultyDoc.exists()) {
+        await signOut(auth);
+        toast.error('This account is registered as Faculty. Please use the Faculty Portal to login.');
+        throw new Error('Wrong portal - use Faculty Portal');
+      }
 
-      await refreshUserData(data.user);
-    }, 'Login successful!');
+      // If not found in either collection
+      await signOut(auth);
+      toast.error('Student account not found. Please register as a student or use the correct portal.');
+      throw new Error('Student account not found');
+      
+    } catch (error: any) {
+      if (!error.message.includes('Wrong portal') && !error.message.includes('Student account not found') && !error.message.includes('Account blocked')) {
+        toast.error('Login failed: ' + error.message);
+      }
+      throw error;
+    }
   };
 
-  const register = async (
-    email: string, 
-    password: string, 
-    userData: Omit<StudentData, 'uid' | 'email' | 'role' | 'created_at' | keyof StudentData['learning_progress']>
-  ) => {
-    return executeAuthOperation(async () => {
-      // Check if registration number exists
-      const { data: existingStudent, error: regError } = await supabase
-        .from('students')
-        .select('registration_number')
-        .eq('registration_number', userData.registration_number)
-        .single();
-
-      if (existingStudent && !regError) {
+  const register = async (email: string, password: string, userData: any) => {
+    try {
+      // Check if registration number already exists
+      const regQuery = query(
+        collection(db, 'students'),
+        where('registrationNumber', '==', userData.registrationNumber)
+      );
+      const regSnapshot = await getDocs(regQuery);
+      
+      if (!regSnapshot.empty) {
+        toast.error('Registration number already exists');
         throw new Error('Registration number already exists');
       }
 
-      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-        email,
-        password,
-      });
-
-      if (signUpError) throw signUpError;
-      if (!signUpData.user) throw new Error('No user returned');
-
-      const newStudent: StudentData = {
-        uid: signUpData.user.id,
+      const result = await createUserWithEmailAndPassword(auth, email, password);
+      const newUserData = {
+        ...userData,
         email,
         role: 'student',
-        created_at: new Date().toISOString(),
-        is_blocked: false,
-        enrolled_courses: [],
-        completed_courses: [],
-        disciplinary_actions: [],
-        learning_progress: {
-          total_courses: 0,
-          completed_courses: 0,
-          average_grade: 0,
-          total_quizzes: 0,
-          average_score: 0
-        },
-        ...userData
+        createdAt: new Date(),
+        isBlocked: false,
+        enrolledCourses: [],
+        completedCourses: [],
+        disciplinaryActions: [],
+        learningProgress: {
+          totalCourses: 0,
+          completedCourses: 0,
+          averageGrade: 0,
+          totalQuizzes: 0,
+          averageScore: 0
+        }
       };
-
-      const { error: insertError } = await supabase
-        .from('students')
-        .insert(newStudent);
-
-      if (insertError) throw insertError;
-
-      await refreshUserData(signUpData.user);
-    }, 'Student registration successful!');
+      
+      await setDoc(doc(db, 'students', result.user.uid), newUserData);
+      
+      setUserRole('student');
+      setUserData(newUserData);
+      toast.success('Student registration successful!');
+    } catch (error: any) {
+      toast.error(error.message);
+      throw error;
+    }
   };
 
   const facultyLogin = async (email: string, password: string) => {
-    return executeAuthOperation(async () => {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+    try {
+      const result = await signInWithEmailAndPassword(auth, email, password);
+      
+      // Check if user exists in faculty collection
+      const facultyDoc = await getDoc(doc(db, 'faculty', result.user.uid));
+      
+      if (facultyDoc.exists()) {
+        const data = facultyDoc.data();
+        if (!data.isApproved) {
+          await signOut(auth);
+          toast.error('Your faculty account is pending admin approval');
+          throw new Error('Account pending approval');
+        }
+        setUserRole('faculty');
+        setUserData(data);
+        toast.success('Faculty login successful!');
+        return;
+      }
 
-      if (error) throw error;
-      if (!data.user) throw new Error('No user returned');
+      // Check if user exists in students collection
+      const studentDoc = await getDoc(doc(db, 'students', result.user.uid));
+      if (studentDoc.exists()) {
+        await signOut(auth);
+        toast.error('This account is registered as Student. Please use the Student Portal to login.');
+        throw new Error('Wrong portal - use Student Portal');
+      }
 
-      await refreshUserData(data.user);
-    }, 'Faculty login successful!');
+      // If not found in either collection
+      await signOut(auth);
+      toast.error('Faculty account not found. Please register as faculty or use the correct portal.');
+      throw new Error('Faculty account not found');
+      
+    } catch (error: any) {
+      if (!error.message.includes('Wrong portal') && !error.message.includes('Faculty account not found') && !error.message.includes('Account pending approval')) {
+        toast.error('Login failed: ' + error.message);
+      }
+      throw error;
+    }
   };
 
-  const facultyRegister = async (
-    email: string, 
-    password: string, 
-    userData: Omit<FacultyData, 'uid' | 'email' | 'role' | 'created_at' | keyof FacultyData['analytics']>
-  ) => {
-    return executeAuthOperation(async () => {
-      // Check if faculty ID exists
-      const { data: existingFaculty, error: facultyError } = await supabase
-        .from('faculty')
-        .select('faculty_id')
-        .eq('faculty_id', userData.faculty_id)
-        .single();
-
-      if (existingFaculty && !facultyError) {
+  const facultyRegister = async (email: string, password: string, userData: any) => {
+    try {
+      // Check if faculty ID already exists
+      const facultyQuery = query(
+        collection(db, 'faculty'),
+        where('facultyId', '==', userData.facultyId)
+      );
+      const facultySnapshot = await getDocs(facultyQuery);
+      
+      if (!facultySnapshot.empty) {
+        toast.error('Faculty ID already exists');
         throw new Error('Faculty ID already exists');
       }
 
-      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-        email,
-        password,
-      });
-
-      if (signUpError) throw signUpError;
-      if (!signUpData.user) throw new Error('No user returned');
-
-      const newFaculty: FacultyData = {
-        uid: signUpData.user.id,
+      const result = await createUserWithEmailAndPassword(auth, email, password);
+      const newUserData = {
+        ...userData,
         email,
         role: 'faculty',
-        created_at: new Date().toISOString(),
-        is_approved: false,
+        createdAt: new Date(),
+        isApproved: false,
         courses: [],
         analytics: {
-          total_courses: 0,
-          total_students: 0,
-          total_quizzes: 0,
-          average_student_score: 0
-        },
-        ...userData
+          totalCourses: 0,
+          totalStudents: 0,
+          totalQuizzes: 0,
+          averageStudentScore: 0
+        }
       };
-
-      const { error: insertError } = await supabase
-        .from('faculty')
-        .insert(newFaculty);
-
-      if (insertError) throw insertError;
-
-      await refreshUserData(signUpData.user);
-    }, 'Faculty registration successful! Awaiting admin approval.');
+      
+      await setDoc(doc(db, 'faculty', result.user.uid), newUserData);
+      
+      setUserRole('faculty');
+      setUserData(newUserData);
+      toast.success('Faculty registration successful! Awaiting admin approval.');
+    } catch (error: any) {
+      toast.error(error.message);
+      throw error;
+    }
   };
 
   const adminLogin = async (username: string, password: string) => {
@@ -304,18 +251,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const adminData = {
         uid: 'admin-system',
         email: 'admin@lms.com',
-        full_name: 'System Administrator',
+        displayName: 'System Administrator',
         role: 'admin'
       };
-      
-      // Simulate a Supabase user
-      const adminUser = {
-        id: 'admin-system',
-        email: 'admin@lms.com',
-        user_metadata: { full_name: 'System Administrator' }
-      } as User;
-      
-      setCurrentUser(adminUser);
+      setCurrentUser(adminData as User);
       setUserRole('admin');
       setUserData(adminData);
       toast.success('Admin login successful!');
@@ -326,32 +265,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
-    return executeAuthOperation(async () => {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-      
-      setCurrentUser(null);
-      setUserRole(null);
-      setUserData(null);
-    }, 'Logged out successfully');
+    try {
+      if (userRole === 'admin') {
+        setCurrentUser(null);
+        setUserRole(null);
+        setUserData(null);
+      } else {
+        await signOut(auth);
+      }
+      toast.success('Logged out successfully');
+    } catch (error: any) {
+      toast.error(error.message);
+      throw error;
+    }
   };
 
   useEffect(() => {
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      try {
-        setCurrentUser(session?.user || null);
-        await refreshUserData(session?.user || null);
-      } catch (error) {
-        console.error('Auth state change error:', error);
-      } finally {
-        setLoading(false);
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setCurrentUser(user);
+      
+      if (user) {
+        await refreshUserData(user);
+      } else {
+        setUserRole(null);
+        setUserData(null);
       }
+      
+      if (!authInitialized) {
+        setAuthInitialized(true);
+      }
+      setLoading(false);
     });
 
-    return () => {
-      authListener.subscription.unsubscribe();
-    };
-  }, []);
+    return unsubscribe;
+  }, [authInitialized]);
 
   const value = {
     currentUser,
@@ -369,7 +316,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <AuthContext.Provider value={value}>
-      {!loading && children}
+      {children}
     </AuthContext.Provider>
   );
 };

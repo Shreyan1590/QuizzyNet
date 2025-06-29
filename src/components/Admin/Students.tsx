@@ -1,22 +1,23 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Search, Filter, Ban, CheckCircle, Mail, Phone } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { Users, Search, Filter, Ban, CheckCircle, AlertTriangle, Mail, Phone } from 'lucide-react';
+import { collection, getDocs, doc, updateDoc, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 import { toast } from 'react-hot-toast';
 import Sidebar from '../Layout/Sidebar';
 import Header from '../Layout/Header';
 
 interface Student {
   id: string;
-  first_name: string;
-  last_name: string;
+  firstName: string;
+  lastName: string;
   email: string;
   phone: string;
-  registration_number: string;
-  date_of_birth: string;
-  enrolled_courses: string[];
-  disciplinary_actions: any[];
-  is_blocked: boolean;
-  created_at: string;
+  registrationNumber: string;
+  dateOfBirth: string;
+  enrolledCourses: string[];
+  disciplinaryActions: any[];
+  isBlocked: boolean;
+  createdAt: any;
 }
 
 const AdminStudents: React.FC = () => {
@@ -28,82 +29,58 @@ const AdminStudents: React.FC = () => {
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
 
   useEffect(() => {
-    fetchStudents();
-    
-    // Set up real-time subscription
-    const subscription = supabase
-      .channel('students_changes')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'students'
-      }, () => fetchStudents())
-      .subscribe();
+    const unsubscribe = onSnapshot(
+      query(collection(db, 'students'), orderBy('createdAt', 'desc')),
+      (snapshot) => {
+        const studentsData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as Student[];
+        
+        setStudents(studentsData);
+        setLoading(false);
+      },
+      (error) => {
+        console.error('Error fetching students:', error);
+        toast.error('Error loading students');
+        setLoading(false);
+      }
+    );
 
-    return () => {
-      supabase.removeChannel(subscription);
-    };
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
-    applyFilters();
-  }, [students, searchTerm, statusFilter]);
-
-  const fetchStudents = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('students')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      
-      setStudents(data || []);
-      setLoading(false);
-    } catch (error) {
-      console.error('Error fetching students:', error);
-      toast.error('Error loading students');
-      setLoading(false);
-    }
-  };
-
-  const applyFilters = () => {
     let filtered = students;
 
     if (searchTerm) {
       filtered = filtered.filter(student =>
-        student.first_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        student.last_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        student.firstName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        student.lastName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         student.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        student.registration_number?.toLowerCase().includes(searchTerm.toLowerCase())
+        student.registrationNumber?.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
 
     if (statusFilter !== 'all') {
       if (statusFilter === 'blocked') {
-        filtered = filtered.filter(student => student.is_blocked);
+        filtered = filtered.filter(student => student.isBlocked);
       } else if (statusFilter === 'active') {
-        filtered = filtered.filter(student => !student.is_blocked);
+        filtered = filtered.filter(student => !student.isBlocked);
       }
     }
 
     setFilteredStudents(filtered);
-  };
+  }, [students, searchTerm, statusFilter]);
 
   const handleBlockStudent = async (studentId: string, isBlocked: boolean) => {
     try {
-      const { error } = await supabase
-        .from('students')
-        .update({
-          is_blocked: !isBlocked,
-          blocked_at: !isBlocked ? new Date().toISOString() : null
-        })
-        .eq('id', studentId);
-
-      if (error) throw error;
+      await updateDoc(doc(db, 'students', studentId), {
+        isBlocked: !isBlocked,
+        blockedAt: !isBlocked ? new Date() : null
+      });
       
       toast.success(`Student ${!isBlocked ? 'blocked' : 'unblocked'} successfully`);
-      fetchStudents(); // Refresh the student list
     } catch (error) {
       console.error('Error updating student status:', error);
       toast.error('Error updating student status');
@@ -211,19 +188,19 @@ const AdminStudents: React.FC = () => {
                         <div className="flex items-center">
                           <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
                             <span className="text-purple-600 font-medium">
-                              {student.first_name?.[0]}{student.last_name?.[0]}
+                              {student.firstName?.[0]}{student.lastName?.[0]}
                             </span>
                           </div>
                           <div className="ml-4">
                             <div className="text-sm font-medium text-gray-900">
-                              {student.first_name} {student.last_name}
+                              {student.firstName} {student.lastName}
                             </div>
                             <div className="text-sm text-gray-500">{student.email}</div>
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {student.registration_number}
+                        {student.registrationNumber}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900 flex items-center">
@@ -236,15 +213,15 @@ const AdminStudents: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {student.enrolled_courses?.length || 0} courses
+                        {student.enrolledCourses?.length || 0} courses
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          student.is_blocked
+                          student.isBlocked
                             ? 'bg-red-100 text-red-800'
                             : 'bg-green-100 text-green-800'
                         }`}>
-                          {student.is_blocked ? (
+                          {student.isBlocked ? (
                             <>
                               <Ban className="w-3 h-3 mr-1" />
                               Blocked
@@ -265,14 +242,14 @@ const AdminStudents: React.FC = () => {
                           View Details
                         </button>
                         <button
-                          onClick={() => handleBlockStudent(student.id, student.is_blocked)}
+                          onClick={() => handleBlockStudent(student.id, student.isBlocked)}
                           className={`inline-flex items-center ${
-                            student.is_blocked
+                            student.isBlocked
                               ? 'text-green-600 hover:text-green-900'
                               : 'text-red-600 hover:text-red-900'
                           }`}
                         >
-                          {student.is_blocked ? (
+                          {student.isBlocked ? (
                             <>
                               <CheckCircle className="w-4 h-4 mr-1" />
                               Unblock
@@ -312,12 +289,12 @@ const AdminStudents: React.FC = () => {
                       <div>
                         <label className="block text-sm font-medium text-gray-700">Name</label>
                         <p className="text-sm text-gray-900">
-                          {selectedStudent.first_name} {selectedStudent.last_name}
+                          {selectedStudent.firstName} {selectedStudent.lastName}
                         </p>
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700">Registration Number</label>
-                        <p className="text-sm text-gray-900">{selectedStudent.registration_number}</p>
+                        <p className="text-sm text-gray-900">{selectedStudent.registrationNumber}</p>
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700">Email</label>
@@ -329,14 +306,14 @@ const AdminStudents: React.FC = () => {
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700">Date of Birth</label>
-                        <p className="text-sm text-gray-900">{selectedStudent.date_of_birth}</p>
+                        <p className="text-sm text-gray-900">{selectedStudent.dateOfBirth}</p>
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700">Status</label>
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          selectedStudent.is_blocked ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
+                          selectedStudent.isBlocked ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
                         }`}>
-                          {selectedStudent.is_blocked ? 'Blocked' : 'Active'}
+                          {selectedStudent.isBlocked ? 'Blocked' : 'Active'}
                         </span>
                       </div>
                     </div>
@@ -346,20 +323,20 @@ const AdminStudents: React.FC = () => {
                       <div className="grid grid-cols-3 gap-4 text-center">
                         <div className="bg-blue-50 p-3 rounded-lg">
                           <div className="text-2xl font-bold text-blue-600">
-                            {selectedStudent.enrolled_courses?.length || 0}
+                            {selectedStudent.enrolledCourses?.length || 0}
                           </div>
                           <div className="text-sm text-blue-700">Enrolled Courses</div>
                         </div>
                         <div className="bg-yellow-50 p-3 rounded-lg">
                           <div className="text-2xl font-bold text-yellow-600">
-                            {selectedStudent.disciplinary_actions?.length || 0}
+                            {selectedStudent.disciplinaryActions?.length || 0}
                           </div>
                           <div className="text-sm text-yellow-700">Disciplinary Actions</div>
                         </div>
                         <div className="bg-green-50 p-3 rounded-lg">
                           <div className="text-2xl font-bold text-green-600">
-                            {selectedStudent.created_at ? 
-                              Math.floor((new Date().getTime() - new Date(selectedStudent.created_at).getTime()) / (1000 * 60 * 60 * 24)) :
+                            {selectedStudent.createdAt?.toDate ? 
+                              Math.floor((new Date().getTime() - selectedStudent.createdAt.toDate().getTime()) / (1000 * 60 * 60 * 24)) :
                               0
                             }
                           </div>
