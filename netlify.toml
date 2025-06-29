@@ -10,11 +10,6 @@
   port = 8888
   publish = "dist"
 
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
-
 [build.environment]
   NODE_VERSION = "18.14.0"
   NPM_VERSION = "8.5.0"
@@ -22,7 +17,42 @@
 [functions]
   node_bundler = "esbuild"
 
-# Headers for security and performance
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/eduportal/*"
+  to = "/quizzynet-simats/:splat"
+  status = 301
+
+[[redirects]]
+  from = "/edu-portal/*"
+  to = "/quizzynet-simats/:splat"
+  status = 301
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/contact"
+  to = "/contact-success"
+  status = 200
+  conditions = {Role = ["admin"]}
+
+[[redirects]]
+  from = "/404"
+  to = "/not-found"
+  status = 404
+
+[[redirects]]
+  from = "/500"
+  to = "/server-error"
+  status = 500
+
 [[headers]]
   for = "/*"
   [headers.values]
@@ -36,38 +66,3 @@
   for = "/static/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
-
-# Redirect rules for SEO
-[[redirects]]
-  from = "/eduportal/*"
-  to = "/quizzynet-simats/:splat"
-  status = 301
-
-[[redirects]]
-  from = "/edu-portal/*"
-  to = "/quizzynet-simats/:splat"
-  status = 301
-
-# Environment-specific redirects
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/:splat"
-  status = 200
-
-# Form handling
-[[redirects]]
-  from = "/contact"
-  to = "/contact-success"
-  status = 200
-  conditions = {Role = ["admin"]}
-
-# Custom error pages
-[[redirects]]
-  from = "/404"
-  to = "/not-found"
-  status = 404
-
-[[redirects]]
-  from = "/500"
-  to = "/server-error"
-  status = 500
