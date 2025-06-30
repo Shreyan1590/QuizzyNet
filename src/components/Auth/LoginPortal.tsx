@@ -322,7 +322,7 @@ const LoginPortal: React.FC = () => {
       <div className="bg-gray-50 border-t">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="text-center text-sm text-gray-600">
-            <p>&copy; 2024 QuizzyNet - SIMATS. All rights reserved. | Secure Learning Management System</p>
+            <p>&copy; 2025 QuizzyNet - SIMATS. All rights reserved. | Secure Learning Management System</p>
           </div>
         </div>
       </div>
