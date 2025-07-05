@@ -40,9 +40,9 @@ const RegisterForm: React.FC = () => {
 
     // Validate registration number format for students
     if (registrationType === 'student') {
-      const regNumberPattern = /^[A-Z]{2,3}\d{4,6}$/;
+      const regNumberPattern = /^\d{9}$/;
       if (!regNumberPattern.test(formData.registrationNumber)) {
-        toast.error('Registration number must be in format: ABC1234 or AB123456');
+        toast.error('Registration number must be in format: 123456789');
         return;
       }
     }
