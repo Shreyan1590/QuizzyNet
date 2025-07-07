@@ -11,48 +11,53 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
     
-    // Allow all users to read courses (including admin)
+    // Course access rules
     match /courses/{courseId} {
       allow read: if true;
       allow write: if request.auth != null && 
-        (resource == null || resource.data.facultyId == request.auth.uid);
+                   (resource == null || resource.data.facultyId == request.auth.uid);
     }
     
-    // Allow all users to read quizzes (including admin)
+    // Quiz access rules
     match /quizzes/{quizId} {
       allow read: if true;
-      allow write: if request.auth != null && 
-        (resource == null || resource.data.facultyId == request.auth.uid);
+      allow create: if request.auth != null && 
+                   request.resource.data.facultyId == request.auth.uid;
+      allow update, delete: if request.auth != null && 
+                           resource.data.facultyId == request.auth.uid;
+      
+      // Questions subcollection rules
+      match /questions/{questionId} {
+        allow read: if true;
+        allow create: if request.auth != null && 
+                      get(/databases/$(database)/documents/quizzes/$(quizId)).data.facultyId == request.auth.uid;
+        allow update, delete: if false; // Questions should be immutable after creation
+      }
     }
     
-    // Allow all users to read quiz results (including admin)
+    // Quiz results access rules
     match /quizResults/{resultId} {
-      allow read: if true;
-      allow write: if request.auth != null && 
-        (resource == null || resource.data.studentId == request.auth.uid);
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && 
+                   request.resource.data.studentId == request.auth.uid;
+      allow update, delete: if false; // Results should be immutable after creation
     }
     
-    // Allow all users to read and write questions (including admin)
-    match /questions/{questionId} {
-      allow read, write: if true;
-    }
-    
-    // Admin-only collections - allow read/write for admin operations
-    // Note: This is a temporary solution. In production, implement proper admin authentication
+    // Admin-only collections
     match /disciplinaryActions/{actionId} {
-      allow read, write: if true; // Temporary: allow all access
+      allow read: if request.auth != null;
+      allow write: if request.auth.token.admin == true; // Requires custom claims
     }
     
-    // Allow all authenticated users to read student data for admin/faculty views
-    // Note: This is a temporary solution. In production, implement role-based access
+    // Student data access for faculty/admin
     match /students/{studentId} {
-      allow read: if true; // Temporary: allow all read access
+      allow read: if request.auth != null;
       allow write: if request.auth != null && request.auth.uid == studentId;
     }
     
-    // Allow all authenticated users to read faculty data for admin views
+    // Faculty data access
     match /faculty/{facultyId} {
-      allow read: if true; // Temporary: allow all read access
+      allow read: if request.auth != null;
       allow write: if request.auth != null && request.auth.uid == facultyId;
     }
     
