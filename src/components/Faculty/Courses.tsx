@@ -6,7 +6,7 @@ import { db } from '../../lib/firebase';
 import { toast } from 'react-hot-toast';
 import Sidebar from '../Layout/Sidebar';
 import Header from '../Layout/Header';
-import BulkCourseUpload from './BulkCourseUpload';
+import BulkQuizUpload from './BulkQuizUpload';
 import CourseEnrollmentView from './CourseEnrollmentView';
 import StudentManagement from './StudentManagement';
 import StudentEnrollmentData from './StudentEnrollmentData';
@@ -687,7 +687,7 @@ const FacultyCourses: React.FC = () => {
 
           {/* Bulk Upload Modal */}
           {showBulkUpload && (
-            <BulkCourseUpload onClose={() => setShowBulkUpload(false)} />
+            <BulkQuizUpload onClose={() => setShowBulkUpload(false)} />
           )}
 
           {/* Create Course Modal */}
