@@ -150,7 +150,7 @@ const BulkQuizUpload: React.FC<{ onClose: () => void; courses: any[] }> = ({ onC
 
         // Validate correct answer
         const correctAnswer = parseInt(row['Correct Answer (1-4)']) - 1; // Convert to 0-based index
-        if (isNaN(correctAnswer) {
+        if (isNaN(correctAnswer)) {
           errors.push({ row: i + 1, field: 'Correct Answer (1-4)', message: 'Correct answer must be a number between 1 and 4' });
         } else if (correctAnswer < 0 || correctAnswer >= options.length) {
           errors.push({ row: i + 1, field: 'Correct Answer (1-4)', message: 'Correct answer must correspond to one of the options' });
