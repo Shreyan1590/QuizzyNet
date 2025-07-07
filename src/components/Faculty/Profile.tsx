@@ -373,7 +373,7 @@ const FacultyProfile: React.FC = () => {
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Member Since</span>
+                    <span className="text-sm text-gray-600">Faculty Since</span>
                     <span className="text-sm font-medium text-gray-900">
                       {userData?.createdAt?.toDate ? 
                         new Date(userData.createdAt.toDate()).toLocaleDateString() : 
