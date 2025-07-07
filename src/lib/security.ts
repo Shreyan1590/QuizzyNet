@@ -1,13 +1,15 @@
 import { toast } from 'react-hot-toast';
 
 class SecurityManager {
+  private sessionId: string;
   private tabSwitchCount = 0;
   private maxTabSwitches = 3;
   private lockoutDuration = 3 * 60 * 60 * 1000; // 3 hours in milliseconds
   private isLocked = false;
   private onViolation?: () => void;
 
-  constructor(onViolation?: () => void) {
+  constructor(sessionId: string, onViolation?: () => void) {
+    this.sessionId = sessionId;
     this.onViolation = onViolation;
     this.initializeSecurity();
   }
@@ -114,6 +116,22 @@ class SecurityManager {
 
   public destroy() {
     // Cleanup event listeners if needed
+  }
+
+  async terminate() {
+    // Clean up all monitoring
+    this.destroy();
+    
+    // Additional cleanup specific to your implementation
+    if (this.recording) {
+      await this.stopRecording();
+    }
+
+    return {
+      sessionId: this.sessionId,
+      violations: this.violations,
+      monitoringDuration: Date.now() - this.startTime
+    };
   }
 }
 

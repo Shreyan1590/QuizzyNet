@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { endProctoring } from "../../lib/proctoring";
 import {
   Clock,
   AlertTriangle,
@@ -144,7 +145,10 @@ const QuizInterface: React.FC = () => {
     navigate("/dashboard");
   };
 
+  const [sessionId, setSessionId] = useState("");
   const startQuiz = () => {
+    const newSessionId = `session-${Date.now()}`;
+    setSessionId(newSessionId);
     if (questions.length === 0) {
       toast.error("No questions available for this quiz");
       return;
@@ -196,7 +200,25 @@ const QuizInterface: React.FC = () => {
         questions: questions.length,
       });
 
-      // Calculate results
+      // 1. First stop all proctoring
+      // 1. First stop proctoring using your existing function
+      const terminationResult = await endProctoring(
+        currentUser?.uid || "",
+        quiz?.id || "",
+        sessionId // Make sure you have this state variable
+      );
+
+      if (!terminationResult.success) {
+        console.warn(
+          "Proctoring termination had issues:",
+          terminationResult.errors
+        );
+        toast.warning(
+          "Proctoring stopped with some issues - results still saved"
+        );
+      }
+
+      // 2. Calculate results
       let correctAnswers = 0;
       const detailedResults = questions.map((question) => {
         const userAnswer = answers[question.id];
@@ -216,6 +238,7 @@ const QuizInterface: React.FC = () => {
 
       const score = Math.round((correctAnswers / questions.length) * 100);
 
+      // 3. Save results to database
       const results = {
         quizId: quiz?.id,
         quizTitle: quiz?.title,
@@ -228,13 +251,13 @@ const QuizInterface: React.FC = () => {
         completedAt: new Date(),
         detailedResults,
         status: "completed",
+        proctoringSummary: terminationResult.summary, // Include proctoring data
+        proctoringStatus: terminationResult.success ? "complete" : "partial",
       };
 
-      console.log("Quiz results:", results);
-
-      // Save results to database
       const resultDoc = await addDoc(collection(db, "quizResults"), results);
 
+      // 4. Navigate to results
       toast.success("Quiz submitted successfully!");
       navigate(`/results/${resultDoc.id}`);
     } catch (error) {
@@ -243,6 +266,16 @@ const QuizInterface: React.FC = () => {
     } finally {
       setIsSubmitting(false);
     }
+    try {
+      localStorage.setItem(
+        `quiz-backup-${Date.now()}`,
+        JSON.stringify({ answers, questions })
+      );
+    } catch (e) {
+      console.error("Failed to save backup:", e);
+    }
+
+    toast.error("Error submitting quiz. A backup was saved locally.");
   };
 
   if (loading) {
