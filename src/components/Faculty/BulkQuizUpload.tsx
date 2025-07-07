@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Upload, Download, FileText, CheckCircle, AlertTriangle, X } from 'lucide-react';
+import { Upload, Download, FileText, CheckCircle, AlertTriangle, X, Plus } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { collection, addDoc } from 'firebase/firestore';
+import { collection, addDoc, doc, setDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { toast } from 'react-hot-toast';
 
@@ -54,6 +54,7 @@ const BulkQuizUpload: React.FC<{ onClose: () => void; courses: any[] }> = ({ onC
   const [uploading, setUploading] = useState(false);
   const [step, setStep] = useState<'quiz-info' | 'upload' | 'preview' | 'processing'>('quiz-info');
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
 
   const downloadTemplate = () => {
     const template = [
@@ -226,11 +227,23 @@ const BulkQuizUpload: React.FC<{ onClose: () => void; courses: any[] }> = ({ onC
       onClose();
     } catch (error) {
       console.error('Error during upload:', error);
-      toast.error('Error during upload');
+      toast.error('Failed to save quiz and questions');
     } finally {
       setUploading(false);
     }
   };
+
+  if (!showBulkUpload) {
+    return (
+      <button
+        onClick={() => setShowBulkUpload(true)}
+        className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+      >
+        <Plus className="w-4 h-4 mr-2" />
+        Bulk Upload Quiz
+      </button>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
