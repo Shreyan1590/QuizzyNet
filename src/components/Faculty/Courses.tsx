@@ -6,7 +6,7 @@ import { db } from '../../lib/firebase';
 import { toast } from 'react-hot-toast';
 import Sidebar from '../Layout/Sidebar';
 import Header from '../Layout/Header';
-import BulkQuizUpload from './BulkQuizUpload';
+import BulkQuestionUpload from './BulkQuestionUpload';
 import CourseEnrollmentView from './CourseEnrollmentView';
 import StudentManagement from './StudentManagement';
 import StudentEnrollmentData from './StudentEnrollmentData';
@@ -47,10 +47,8 @@ const FacultyCourses: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'courses' | 'enrollment' | 'students' | 'quizzes'>('courses');
   const [showCreateCourse, setShowCreateCourse] = useState(false);
   const [showCreateQuiz, setShowCreateQuiz] = useState(false);
-  const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const [showBulkQuestionUpload, setShowBulkQuestionUpload] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState<string>('');
-  const [csvFile, setCsvFile] = useState<File | null>(null);
-  const [uploading, setUploading] = useState(false);
   const [duplicateCheck, setDuplicateCheck] = useState<string>('');
   
   const [courseForm, setCourseForm] = useState({
@@ -321,32 +319,6 @@ const FacultyCourses: React.FC = () => {
     }
   };
 
-  const handleFileUpload = async (quizId: string) => {
-    if (!csvFile) {
-      toast.error('Please select a CSV file');
-      return;
-    }
-
-    if (csvFile.size > 10 * 1024 * 1024) {
-      toast.error('File size exceeds 10MB limit');
-      return;
-    }
-
-    setUploading(true);
-    try {
-      // Simulate file processing
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      toast.success('Questions uploaded successfully!');
-      setCsvFile(null);
-    } catch (error) {
-      console.error('Error uploading questions:', error);
-      toast.error('Error uploading questions');
-    } finally {
-      setUploading(false);
-    }
-  };
-
   const handleCourseFormChange = async (field: string, value: string | number) => {
     setCourseForm(prev => ({ ...prev, [field]: value }));
     
@@ -376,6 +348,17 @@ const FacultyCourses: React.FC = () => {
     );
   }
 
+  // Prepare quiz data for bulk upload component
+  const quizData = quizzes.map(quiz => {
+    const course = courses.find(c => c.id === quiz.courseId);
+    return {
+      id: quiz.id,
+      title: quiz.title,
+      courseCode: course?.courseCode || '',
+      courseName: course?.courseName || ''
+    };
+  });
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Sidebar />
@@ -391,11 +374,11 @@ const FacultyCourses: React.FC = () => {
               </div>
               <div className="mt-4 sm:mt-0 flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
                 <button
-                  onClick={() => setShowBulkUpload(true)}
+                  onClick={() => setShowBulkQuestionUpload(true)}
                   className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   <Upload className="w-4 h-4 mr-2" />
-                  Bulk Upload
+                  Bulk Question Upload
                 </button>
                 <button
                   onClick={() => setShowCreateCourse(true)}
@@ -570,7 +553,7 @@ const FacultyCourses: React.FC = () => {
                   <div className="mt-6">
                     <button
                       onClick={() => setShowCreateCourse(true)}
-                      className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700"
                     >
                       <Plus className="w-4 h-4 mr-2" />
                       Create Course
@@ -618,48 +601,14 @@ const FacultyCourses: React.FC = () => {
                   </div>
                   
                   <div className="border-t pt-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <input
-                          type="file"
-                          accept=".csv"
-                          onChange={(e) => setCsvFile(e.target.files?.[0] || null)}
-                          className="hidden"
-                          id={`csv-upload-${quiz.id}`}
-                        />
-                        <label
-                          htmlFor={`csv-upload-${quiz.id}`}
-                          className="inline-flex items-center px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors cursor-pointer text-sm"
-                        >
-                          <Upload className="w-4 h-4 mr-1" />
-                          Upload Questions
-                        </label>
-                        {csvFile && (
-                          <button
-                            onClick={() => handleFileUpload(quiz.id)}
-                            disabled={uploading}
-                            className="inline-flex items-center px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 text-sm"
-                          >
-                            {uploading ? 'Uploading...' : 'Save Questions'}
-                          </button>
-                        )}
-                      </div>
-                      
-                      <div className="flex space-x-2">
-                        <button className="px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button className="px-3 py-2 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
+                    <div className="flex justify-end space-x-2">
+                      <button className="px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      <button className="px-3 py-2 border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
-                    
-                    {csvFile && (
-                      <div className="mt-2 text-sm text-gray-600">
-                        Selected file: {csvFile.name} ({(csvFile.size / (1024 * 1024)).toFixed(2)} MB)
-                      </div>
-                    )}
                   </div>
                 </div>
               ))}
@@ -674,7 +623,7 @@ const FacultyCourses: React.FC = () => {
                   <div className="mt-6">
                     <button
                       onClick={() => setShowCreateQuiz(true)}
-                      className="inline-flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700"
                     >
                       <Plus className="w-4 h-4 mr-2" />
                       Create Quiz
@@ -685,9 +634,12 @@ const FacultyCourses: React.FC = () => {
             </div>
           )}
 
-          {/* Bulk Upload Modal */}
-          {showBulkUpload && (
-            <BulkQuizUpload onClose={() => setShowBulkUpload(false)} />
+          {/* Bulk Question Upload Modal */}
+          {showBulkQuestionUpload && (
+            <BulkQuestionUpload 
+              onClose={() => setShowBulkQuestionUpload(false)} 
+              quizzes={quizData}
+            />
           )}
 
           {/* Create Course Modal */}
