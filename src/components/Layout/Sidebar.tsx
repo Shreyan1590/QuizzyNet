@@ -198,51 +198,6 @@ const Sidebar: React.FC = () => {
             ))}
           </div>
         </nav>
-
-        {/* Quick Stats */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-200 bg-gray-50">
-          <div className="text-center">
-            <div className="text-xs text-gray-500 mb-2">Quick Stats</div>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              {userRole === 'student' && (
-                <>
-                  <div className="bg-white rounded-lg p-2 shadow-sm">
-                    <div className="font-semibold text-blue-600">{userData?.enrolledCourses?.length || 0}</div>
-                    <div className="text-gray-500">Courses</div>
-                  </div>
-                  <div className="bg-white rounded-lg p-2 shadow-sm">
-                    <div className="font-semibold text-green-600">85%</div>
-                    <div className="text-gray-500">Avg Score</div>
-                  </div>
-                </>
-              )}
-              {userRole === 'faculty' && (
-                <>
-                  <div className="bg-white rounded-lg p-2 shadow-sm">
-                    <div className="font-semibold text-green-600">{userData?.courses?.length || 0}</div>
-                    <div className="text-gray-500">Courses</div>
-                  </div>
-                  <div className="bg-white rounded-lg p-2 shadow-sm">
-                    <div className="font-semibold text-blue-600">120</div>
-                    <div className="text-gray-500">Students</div>
-                  </div>
-                </>
-              )}
-              {userRole === 'admin' && (
-                <>
-                  <div className="bg-white rounded-lg p-2 shadow-sm">
-                    <div className="font-semibold text-purple-600">1,250</div>
-                    <div className="text-gray-500">Users</div>
-                  </div>
-                  <div className="bg-white rounded-lg p-2 shadow-sm">
-                    <div className="font-semibold text-green-600">98%</div>
-                    <div className="text-gray-500">Uptime</div>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
       </div>
     </>
   );
