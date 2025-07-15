@@ -91,7 +91,7 @@ class SecurityManager {
     const lockoutEndTime = Date.now() + this.lockoutDuration;
     localStorage.setItem('quizLockout', lockoutEndTime.toString());
     
-    toast.error('Quiz access locked for 3 hours due to security violations');
+    toast.error('Quiz access locked for 1 hours due to security violations');
     this.onViolation?.();
   }
 
