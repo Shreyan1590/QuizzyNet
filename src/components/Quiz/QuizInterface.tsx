@@ -163,11 +163,11 @@ const QuizInterface: React.FC = () => {
     const secs = seconds % 60;
 
     if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, "0")}:${secs
+      return `${hours}:${minutes.toString().padStart(1, "0")}:${secs
         .toString()
         .padStart(2, "0")}`;
     }
-    return `${minutes}:${secs.toString().padStart(2, "0")}`;
+    return `${minutes}:${secs.toString().padStart(1, "0")}`;
   };
 
   const handleAnswerSelect = (optionIndex: number) => {
