@@ -3,8 +3,8 @@ import { toast } from 'react-hot-toast';
 class SecurityManager {
   private sessionId: string;
   private tabSwitchCount = 0;
-  private maxTabSwitches = 2;
-  private lockoutDuration = 1 * 60 * 60 * 1000; // 3 hours in milliseconds
+  private maxTabSwitches = 3;
+  private lockoutDuration = 3 * 60 * 60 * 1000; // 3 hours in milliseconds
   private isLocked = false;
   private onViolation?: () => void;
 
@@ -101,7 +101,7 @@ class SecurityManager {
       this.isLocked = true;
       const remainingTime = parseInt(lockoutEndTime) - Date.now();
       const hours = Math.ceil(remainingTime / (60 * 60 * 1000));
-      toast.error(`Quiz access locked for 1 more hours`);
+      toast.error(`Quiz access locked for ${hours} more hours`);
       this.onViolation?.();
     }
   }
