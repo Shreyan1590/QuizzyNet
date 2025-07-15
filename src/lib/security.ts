@@ -101,7 +101,7 @@ class SecurityManager {
       this.isLocked = true;
       const remainingTime = parseInt(lockoutEndTime) - Date.now();
       const hours = Math.ceil(remainingTime / (60 * 60 * 1000));
-      toast.error(`Quiz access locked for ${hours} more hours`);
+      toast.error(`Quiz access locked for 1 more hours`);
       this.onViolation?.();
     }
   }
