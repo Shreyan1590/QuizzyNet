@@ -3,8 +3,8 @@ import { toast } from 'react-hot-toast';
 class SecurityManager {
   private sessionId: string;
   private tabSwitchCount = 0;
-  private maxTabSwitches = 3;
-  private lockoutDuration = 3 * 60 * 60 * 1000; // 3 hours in milliseconds
+  private maxTabSwitches = 2;
+  private lockoutDuration = 1 * 60 * 60 * 1000; // 3 hours in milliseconds
   private isLocked = false;
   private onViolation?: () => void;
 
